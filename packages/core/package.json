@@ -1,0 +1,27 @@
+{
+  "name": "@dav-ai/core",
+  "version": "1.0.0",
+  "description": "DAV.ai Core Agent - LangGraph-based web exploration agent",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "watch": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@langchain/anthropic": "^1.0.1",
+    "@langchain/core": "^0.3.0",
+    "@langchain/langgraph": "^0.2.0",
+    "@langchain/openai": "^0.3.0",
+    "dotenv": "^16.4.5",
+    "neo4j-driver": "^5.20.0",
+    "playwright": "^1.48.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.16.0"
+  }
+}

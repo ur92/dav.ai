@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+playwright-report/
+test-results/
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+yarn.lock
+.pnp.*
+# Docker volumes (optional - uncomment if you want to ignore volume data)
+# neo4j_data/
+

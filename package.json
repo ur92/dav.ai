@@ -1,0 +1,27 @@
+{
+  "name": "dav-ai-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Discovery Analysis Validation - Agentic Web Operator Monorepo",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "yarn workspaces foreach -A run build",
+    "dev": "yarn workspace @dav-ai/frontend dev",
+    "dev:core": "yarn workspace @dav-ai/core dev",
+    "dev:frontend": "yarn workspace @dav-ai/frontend dev",
+    "start": "yarn workspace @dav-ai/core start",
+    "start:frontend": "yarn workspace @dav-ai/frontend start",
+    "clean": "yarn workspaces foreach -A run clean && rm -rf node_modules",
+    "neo4j:up": "docker compose up -d neo4j",
+    "neo4j:down": "docker compose down",
+    "neo4j:logs": "docker compose logs -f neo4j",
+    "neo4j:restart": "docker compose restart neo4j",
+    "neo4j:status": "docker compose ps neo4j"
+  },
+  "packageManager": "yarn@4.0.0",
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

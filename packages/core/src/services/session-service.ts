@@ -16,6 +16,7 @@ export interface Session {
   url: string;
   maxIterations: number;
   createdAt: Date;
+  decisions: string[]; // Agent decisions for frontend display
 }
 
 /**
@@ -72,7 +73,17 @@ export class SessionService {
       url: result.url,
       maxIterations: result.maxIterations,
       createdAt: new Date(),
+      decisions: [],
     };
+
+    // Set up decision callback to store decisions in session
+    result.agent.setDecisionCallback((decision: string) => {
+      session.decisions.push(decision);
+      // Keep only last 100 decisions to avoid memory issues
+      if (session.decisions.length > 100) {
+        session.decisions = session.decisions.slice(-100);
+      }
+    });
 
     // Handle completion/error
     result.runPromise

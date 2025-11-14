@@ -20,6 +20,7 @@ export class DavAgent {
   private sessionId: string;
   private credentials?: { username?: string; password?: string };
   private loginAttempted: Set<string> = new Set(); // Track URLs where login was attempted
+  private onDecisionCallback?: (decision: string) => void; // Callback for emitting decisions to frontend
 
   constructor(
     browserTools: BrowserTools,
@@ -98,6 +99,16 @@ export class DavAgent {
           },
           default: () => [],
         },
+        visitedFingerprints: {
+          reducer: (x: string[] | undefined, y: string[] | undefined) => {
+            const xArr = x ?? [];
+            const yArr = y ?? [];
+            // Merge and deduplicate
+            const merged = [...xArr, ...yArr];
+            return Array.from(new Set(merged));
+          },
+          default: () => [],
+        },
       },
     });
 
@@ -134,6 +145,23 @@ export class DavAgent {
       const elementCount = observation.domState.split('\n').length - 1;
       let historyEntry = `[OBSERVE] Visited ${observation.currentUrl}. Found ${elementCount} actionable elements.`;
       
+      // Check for cycle: if we've seen this fingerprint before, we've completed a cycle
+      const visitedFingerprints = state.visitedFingerprints || [];
+      const isCycle = visitedFingerprints.includes(observation.fingerprint);
+      
+      if (isCycle) {
+        logger.info('OBSERVE', `Cycle detected! Fingerprint ${observation.fingerprint} was visited before. Ending exploration gracefully.`);
+        historyEntry += ' [CYCLE DETECTED - Exploration complete]';
+        this.emitDecision('🔄 Cycle detected - Exploration complete');
+        return {
+          currentUrl: observation.currentUrl,
+          domState: observation.domState,
+          actionHistory: [historyEntry],
+          visitedFingerprints: [...visitedFingerprints, observation.fingerprint],
+          explorationStatus: 'FLOW_END', // Gracefully end when cycle detected
+        };
+      }
+      
       // Check if this is a login screen and we have credentials
       const isLoginScreen = this.detectLoginScreen(observation.domState);
       if (isLoginScreen && this.credentials?.username && this.credentials?.password && !this.loginAttempted.has(observation.currentUrl)) {
@@ -149,6 +177,7 @@ export class DavAgent {
         currentUrl: observation.currentUrl,
         domState: observation.domState,
         actionHistory: [historyEntry],
+        visitedFingerprints: [...visitedFingerprints, observation.fingerprint],
       };
     } catch (error) {
       logger.error('OBSERVE', 'Error', { error: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined });
@@ -310,6 +339,7 @@ export class DavAgent {
             },
           ];
 
+          this.emitDecision('🔐 Auto-login: Filling credentials and clicking login');
           return {
             pendingActions: batchActions,
             explorationStatus: 'CONTINUE',
@@ -371,6 +401,7 @@ Be concise and focus on exploring new paths. Batch related actions together when
       let decision: Partial<DavAgentState>;
 
       if (content.includes('FLOW_END') || content.includes('"status": "FLOW_END"')) {
+        this.emitDecision('🏁 Agent decided to end exploration flow');
         decision = {
           explorationStatus: 'FLOW_END',
           pendingAction: null,
@@ -394,28 +425,51 @@ Be concise and focus on exploring new paths. Batch related actions together when
                 url: action.url,
               }));
 
+              const actionDescriptions = batchActions.map(a => {
+                if (a.tool === 'clickElement') return `click ${a.selector || 'element'}`;
+                if (a.tool === 'typeText') return `type into ${a.selector || 'field'}`;
+                if (a.tool === 'selectOption') return `select ${a.value} from ${a.selector || 'dropdown'}`;
+                if (a.tool === 'navigate') return `navigate to ${a.url}`;
+                return a.tool;
+              });
+              this.emitDecision(`🎯 Decided: ${actionDescriptions.join(' → ')}`);
+
               decision = {
                 pendingActions: batchActions,
                 explorationStatus: 'CONTINUE',
                 actionHistory: [`[DECIDE] Selected ${batchActions.length} batch actions: ${batchActions.map(a => a.tool).join(', ')}`],
               };
-            } else {
-              // Single action (backward compatible)
-              const pendingAction: PendingAction = {
-                tool: parsed.tool || 'clickElement',
-                selector: parsed.selector,
-                text: parsed.text,
-                value: parsed.value,
-                url: parsed.url,
-              };
+                    } else {
+                      // Single action (backward compatible)
+                      const pendingAction: PendingAction = {
+                        tool: parsed.tool || 'clickElement',
+                        selector: parsed.selector,
+                        text: parsed.text,
+                        value: parsed.value,
+                        url: parsed.url,
+                      };
 
-              decision = {
-                pendingAction,
-                pendingActions: [pendingAction], // Convert single to array for batch execution
-                explorationStatus: 'CONTINUE',
-                actionHistory: [`[DECIDE] Selected action: ${pendingAction.tool} on ${pendingAction.selector || pendingAction.url}`],
-              };
-            }
+                      let decisionText = '';
+                      if (pendingAction.tool === 'clickElement') {
+                        decisionText = `🎯 Decided: click ${pendingAction.selector || 'element'}`;
+                      } else if (pendingAction.tool === 'typeText') {
+                        decisionText = `🎯 Decided: type into ${pendingAction.selector || 'field'}`;
+                      } else if (pendingAction.tool === 'selectOption') {
+                        decisionText = `🎯 Decided: select ${pendingAction.value} from ${pendingAction.selector || 'dropdown'}`;
+                      } else if (pendingAction.tool === 'navigate') {
+                        decisionText = `🎯 Decided: navigate to ${pendingAction.url}`;
+                      } else {
+                        decisionText = `🎯 Decided: ${pendingAction.tool}`;
+                      }
+                      this.emitDecision(decisionText);
+
+                      decision = {
+                        pendingAction,
+                        pendingActions: [pendingAction], // Convert single to array for batch execution
+                        explorationStatus: 'CONTINUE',
+                        actionHistory: [`[DECIDE] Selected action: ${pendingAction.tool} on ${pendingAction.selector || pendingAction.url}`],
+                      };
+                    }
           } catch (e) {
             // Fallback: try to infer action from text
             decision = {
@@ -615,6 +669,22 @@ Be concise and focus on exploring new paths. Batch related actions together when
   }
 
   /**
+   * Set callback for emitting decisions to frontend
+   */
+  setDecisionCallback(callback: (decision: string) => void): void {
+    this.onDecisionCallback = callback;
+  }
+
+  /**
+   * Emit a decision to the frontend (if callback is set)
+   */
+  private emitDecision(decision: string): void {
+    if (this.onDecisionCallback) {
+      this.onDecisionCallback(decision);
+    }
+  }
+
+  /**
    * Run the agent starting from a given URL
    */
   async run(startingUrl: string, maxIterations: number = 20): Promise<DavAgentState> {
@@ -629,15 +699,16 @@ Be concise and focus on exploring new paths. Batch related actions together when
       const compiledGraph = this.compile();
       logger.info('AGENT', '[run] Graph compiled successfully');
 
-      const initialState: DavAgentState = {
-        currentUrl: startingUrl,
-        domState: '',
-        actionHistory: [],
-        neo4jQueries: [],
-        explorationStatus: 'CONTINUE',
-        pendingAction: null,
-        pendingActions: [],
-      };
+              const initialState: DavAgentState = {
+                currentUrl: startingUrl,
+                domState: '',
+                actionHistory: [],
+                neo4jQueries: [],
+                explorationStatus: 'CONTINUE',
+                pendingAction: null,
+                pendingActions: [],
+                visitedFingerprints: [],
+              };
 
       let currentState = initialState;
       let iterations = 0;
@@ -647,12 +718,27 @@ Be concise and focus on exploring new paths. Batch related actions together when
       while (currentState.explorationStatus === 'CONTINUE' && iterations < maxIterations) {
         try {
           logger.info('AGENT', `[run] Invoking graph for iteration ${iterations + 1}...`);
-          const result = await compiledGraph.invoke(currentState);
+          // Set recursion limit to allow for multiple graph steps per iteration
+          // Each iteration can involve: observe -> decide -> execute -> persist (4 steps)
+          // Use a high recursion limit to prevent premature termination
+          const result = await compiledGraph.invoke(currentState, {
+            recursionLimit: maxIterations * 10,
+          } as any); // Type assertion needed due to LangGraph type definitions
           currentState = result as DavAgentState;
           iterations++;
 
           logger.info('AGENT', `[run] Iteration ${iterations}/${maxIterations} - Status: ${currentState.explorationStatus}`);
         } catch (error) {
+          // Check if it's a recursion limit error - if so, treat as graceful completion
+          if (error instanceof Error && error.message.includes('Recursion limit')) {
+            logger.info('AGENT', `[run] Recursion limit reached, treating as graceful completion`, {
+              iterations,
+              status: currentState.explorationStatus,
+            });
+            currentState.explorationStatus = 'FLOW_END';
+            break;
+          }
+          
           logger.error('AGENT', `[run] Error in iteration ${iterations}`, { 
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined,

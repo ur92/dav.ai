@@ -16,6 +16,15 @@ export interface AppConfig {
   // Agent Configuration
   maxIterations: number;
   startingUrl: string;
+  
+  // Browser Configuration
+  headless: boolean;
+  
+  // Logging Configuration
+  logLevel: 'info' | 'warn' | 'error';
+  
+  // Credentials Configuration (optional, for automatic login)
+  credentials?: { username?: string; password?: string };
 }
 
 export class ConfigService {
@@ -45,6 +54,18 @@ export class ConfigService {
       // Agent Configuration
       maxIterations: parseInt(process.env.MAX_ITERATIONS || '20', 10),
       startingUrl: process.env.STARTING_URL || 'https://example.com',
+      
+      // Browser Configuration
+      headless: process.env.HEADLESS !== 'false', // Default to true (headless), set HEADLESS=false to show browser
+      
+      // Logging Configuration
+      logLevel: (process.env.LOG_LEVEL?.toLowerCase() || 'error') as 'info' | 'warn' | 'error',
+      
+      // Credentials Configuration (optional)
+      credentials: (process.env.CRED_USERNAME || process.env.CRED_PASSWORD) ? {
+        username: process.env.CRED_USERNAME,
+        password: process.env.CRED_PASSWORD,
+      } : undefined,
     };
   }
 
@@ -65,6 +86,14 @@ export class ConfigService {
   static getLLMApiKey(): string {
     const config = this.getConfig();
     return config.llmApiKey;
+  }
+
+  /**
+   * Get credentials from config (if available)
+   */
+  static getCredentials(): { username?: string; password?: string } | undefined {
+    const config = this.getConfig();
+    return config.credentials;
   }
 
   /**

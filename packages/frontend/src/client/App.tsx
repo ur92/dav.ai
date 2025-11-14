@@ -84,6 +84,7 @@ interface Session {
     actionHistory?: string[];
     explorationStatus?: string;
   };
+  decisions?: string[]; // Agent decisions for display
 }
 
 interface GraphData {
@@ -288,6 +289,28 @@ function App() {
       }
     };
 
+    // Load credentials from API
+    const loadCredentials = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/credentials');
+        if (response.ok) {
+          const credentials = await response.json();
+          // Prefill credentials if they exist in config
+          if (credentials.username) {
+            setAppUsername(credentials.username);
+          }
+          if (credentials.password) {
+            setAppPassword(credentials.password);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading credentials:', error);
+      }
+    };
+
+    loadConfig();
+    loadCredentials();
+
     // Connect to WebSocket
     const websocket = new WebSocket('ws://localhost:3001/ws');
     
@@ -317,8 +340,7 @@ function App() {
 
     setWs(websocket);
 
-    // Load initial data
-    loadConfig();
+    // Load initial data (config and credentials already loaded above)
     loadSessions();
     // Don't load graph on initial load - wait for session selection
 
@@ -327,52 +349,61 @@ function App() {
     };
   }, []);
 
-  // Poll current session for real-time updates
-  useEffect(() => {
-    if (!currentSession) {
-      // Clear graph when no session is selected
-      setGraphData(null);
-      return;
-    }
+          // Poll current session for real-time updates
+          useEffect(() => {
+            if (!currentSession) {
+              // Clear graph when no session is selected
+              setGraphData(null);
+              return;
+            }
 
-    // Load graph for the selected session immediately
-    loadGraph(currentSession);
-
-    const interval = setInterval(async () => {
-      try {
-        const response = await fetch(`http://localhost:3001/api/session/${currentSession}`);
-        if (response.ok) {
-          const session: Session = await response.json();
-          
-          // Update activity feed with new actions
-          if (session.currentState?.actionHistory) {
-            const newActions = session.currentState.actionHistory.slice(agentActivity.length);
-            newActions.forEach((action) => {
-              addActivity(action);
-            });
-          }
-
-          // Update sessions list
-          loadSessions();
-          
-          // Reload graph periodically for this session
-          if (session.status === 'running') {
+            // Load graph for the selected session immediately
             loadGraph(currentSession);
-          }
 
-          // Stop polling if completed
-          if (session.status === 'completed' || session.status === 'error') {
-            setLoading(false);
-            loadGraph(currentSession);
-          }
-        }
-      } catch (error) {
-        console.error('Error polling session:', error);
-      }
-    }, 2000); // Poll every 2 seconds
+            let lastDecisionCount = 0;
 
-    return () => clearInterval(interval);
-  }, [currentSession, agentActivity.length]);
+            const interval = setInterval(async () => {
+              try {
+                const response = await fetch(`http://localhost:3001/api/session/${currentSession}`);
+                if (response.ok) {
+                  const session: Session = await response.json();
+                  
+                  // Update activity feed with new decisions (agent decisions)
+                  if (session.decisions && Array.isArray(session.decisions)) {
+                    const newDecisions = session.decisions.slice(lastDecisionCount);
+                    newDecisions.forEach((decision) => {
+                      addActivity(decision);
+                    });
+                    lastDecisionCount = session.decisions.length;
+                  }
+
+                  // Update sessions list
+                  loadSessions();
+                  
+                  // Reload graph periodically for this session
+                  if (session.status === 'running') {
+                    loadGraph(currentSession);
+                  }
+
+                  // Stop polling if completed
+                  if (session.status === 'completed' || session.status === 'error') {
+                    setLoading(false);
+                    loadGraph(currentSession);
+                    // Add final decisions if any
+                    if (session.decisions && session.decisions.length > lastDecisionCount) {
+                      session.decisions.slice(lastDecisionCount).forEach((decision) => {
+                        addActivity(decision);
+                      });
+                    }
+                  }
+                }
+              } catch (error) {
+                console.error('Error polling session:', error);
+              }
+            }, 2000); // Poll every 2 seconds
+
+            return () => clearInterval(interval);
+          }, [currentSession]);
 
   const addActivity = useCallback((message: string) => {
     setAgentActivity((prev) => {

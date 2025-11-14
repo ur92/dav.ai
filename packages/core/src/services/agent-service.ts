@@ -26,10 +26,18 @@ export class AgentService {
     // Use provided maxIterations or fall back to config
     const iterations = maxIterations ?? config.maxIterations;
     
+    // Use provided credentials or fall back to config credentials
+    const finalCredentials = credentials ?? ConfigService.getCredentials();
+    
     logger.info('AgentService', 'Iterations configuration', {
       provided: maxIterations,
       fromConfig: config.maxIterations,
       final: iterations,
+    });
+    logger.info('AgentService', 'Credentials configuration', {
+      provided: !!credentials,
+      fromConfig: !!ConfigService.getCredentials(),
+      hasCredentials: !!(finalCredentials?.username || finalCredentials?.password)
     });
 
     if (!apiKey) {
@@ -37,7 +45,7 @@ export class AgentService {
     }
 
     // Initialize tools
-    const browserTools = new BrowserTools();
+    const browserTools = new BrowserTools(config.headless);
     const neo4jTools = new Neo4jTools(config.neo4jUri, config.neo4jUser, config.neo4jPassword);
 
     // Initialize browser
@@ -51,8 +59,21 @@ export class AgentService {
       throw new Error('Failed to connect to Neo4j database.');
     }
 
-    // Create agent with sessionId and credentials
+    // Ensure indexes exist for better performance
+    await neo4jTools.ensureIndexes();
+
+    // Create a fresh, empty graph for this session by deleting any existing data
+    // This ensures each session starts with a clean slate
     const finalSessionId = sessionId || `session-${Date.now()}`;
+    try {
+      await neo4jTools.deleteSessionData(finalSessionId);
+      logger.info('AgentService', `Cleared any existing graph data for session: ${finalSessionId}`);
+    } catch (error) {
+      // If deletion fails (e.g., session doesn't exist yet), that's fine
+      logger.info('AgentService', `No existing data to clear for session: ${finalSessionId}`);
+    }
+
+    // Create agent with sessionId and credentials
     const agent = new DavAgent(
       browserTools, 
       neo4jTools, 
@@ -60,7 +81,7 @@ export class AgentService {
       config.llmProvider, 
       config.llmModel, 
       finalSessionId,
-      credentials
+      finalCredentials
     );
 
     // Start exploration - wrap in a promise that handles errors and logs

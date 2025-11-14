@@ -4,6 +4,7 @@ import { main } from './index.js';
 import { SessionService } from './services/session-service.js';
 import { GraphService } from './services/graph-service.js';
 import { ConfigService } from './services/config-service.js';
+import { UserStoryService } from './services/user-story-service.js';
 import type { DavAgentState } from './types/state.js';
 import { logger } from './utils/logger.js';
 import * as dotenv from 'dotenv';
@@ -36,6 +37,10 @@ if (!envLoaded) {
 // Initialize ConfigService
 ConfigService.initialize();
 
+// Initialize logger with configured log level
+const config = ConfigService.getConfig();
+logger.initialize(config.logLevel);
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -55,11 +60,27 @@ app.get('/config', (req, res) => {
       neo4jUri: config.neo4jUri,
       maxIterations: config.maxIterations,
       startingUrl: config.startingUrl,
+      headless: config.headless,
+      logLevel: config.logLevel,
     };
     res.json(safeConfig);
   } catch (error) {
     res.status(500).json({
       error: 'Failed to retrieve configuration',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// Get credentials from config (if available)
+app.get('/credentials', (req, res) => {
+  try {
+    const credentials = ConfigService.getCredentials();
+    // Return credentials if they exist, otherwise return empty object
+    res.json(credentials || {});
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to retrieve credentials',
       message: error instanceof Error ? error.message : String(error),
     });
   }
@@ -79,17 +100,25 @@ app.post('/explore', async (req, res) => {
       ? maxIterations 
       : ConfigService.getConfig().maxIterations;
     
+    // Use provided credentials or fall back to config credentials
+    const finalCredentials = credentials ?? ConfigService.getCredentials();
+    
     logger.info('Server', 'Using iterations', { 
       provided: maxIterations, 
       final: iterations,
       fromConfig: ConfigService.getConfig().maxIterations 
+    });
+    logger.info('Server', 'Using credentials', {
+      provided: !!credentials,
+      fromConfig: !!ConfigService.getCredentials(),
+      hasCredentials: !!(finalCredentials?.username || finalCredentials?.password)
     });
     
     // Generate sessionId before starting exploration
     const sessionId = `session-${Date.now()}`;
     
     // Call main() with autoCleanup=false so we can manage the session
-    const explorationResult = await main(url, iterations, false, sessionId, credentials);
+    const explorationResult = await main(url, iterations, false, sessionId, finalCredentials);
     
     // Register session from the exploration result
     const session = SessionService.registerSession({
@@ -104,13 +133,35 @@ app.post('/explore', async (req, res) => {
 
     // Set up completion/error handlers
     session.runPromise
-      .then((finalState: DavAgentState) => {
+      .then(async (finalState: DavAgentState) => {
         logger.info('Server', 'Exploration completed', {
           sessionId: session.sessionId,
           status: finalState.explorationStatus,
           finalUrl: finalState.currentUrl,
           actionCount: finalState.actionHistory.length,
         });
+
+        // Generate user stories from the exploration graph
+        try {
+          logger.info('Server', 'Generating user stories from exploration graph...', { sessionId: session.sessionId });
+          const userStoryService = new UserStoryService();
+          const userStories = await userStoryService.generateUserStories(session.sessionId);
+          
+          // Store user stories in session for retrieval
+          (session as any).userStories = userStories;
+          
+          logger.info('Server', 'User stories generated successfully', {
+            sessionId: session.sessionId,
+            storyCount: userStories.stories.length,
+          });
+        } catch (error) {
+          logger.error('Server', 'Failed to generate user stories', {
+            sessionId: session.sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          // Don't fail the session if user story generation fails
+        }
+
         // Session status will be updated by SessionService
       })
       .catch((error: Error) => {
@@ -156,11 +207,17 @@ app.get('/session/:sessionId', (req, res) => {
       sessionId,
       status: session.status,
       currentState: session.currentState,
+      decisions: session.decisions || [], // Include agent decisions
     };
     
     // Include error details if available
     if ((session as any).error) {
       response.error = (session as any).error;
+    }
+    
+    // Include user stories if available
+    if ((session as any).userStories) {
+      response.userStories = (session as any).userStories;
     }
     
     res.json(response);

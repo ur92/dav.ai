@@ -8,13 +8,18 @@ import { createHash } from 'crypto';
 export class BrowserTools {
   private browser: Browser | null = null;
   private page: Page | null = null;
+  private headless: boolean;
+
+  constructor(headless: boolean = true) {
+    this.headless = headless;
+  }
 
   /**
    * Initialize browser and create a new page
    */
   async initialize(): Promise<void> {
     this.browser = await chromium.launch({
-      headless: true,
+      headless: this.headless,
     });
     this.page = await this.browser.newPage();
   }

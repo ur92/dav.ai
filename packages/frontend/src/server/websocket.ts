@@ -9,10 +9,6 @@ export function setupWebSocket(server: Server, path: string = '/ws') {
   // Broadcast function to send messages to all connected clients
   const broadcast = (data: any) => {
     const openClients = Array.from(wss.clients).filter(client => client.readyState === 1);
-    logger.info('WebSocket', 'Broadcasting message', { 
-      clientCount: openClients.length, 
-      messageType: data.type 
-    });
     openClients.forEach((client) => {
       client.send(JSON.stringify(data));
     });
@@ -23,16 +19,12 @@ export function setupWebSocket(server: Server, path: string = '/ws') {
 
   // WebSocket connection handler
   wss.on('connection', (ws) => {
-    logger.info('WebSocket', 'Client connected', { totalClients: wss.clients.size });
-
     ws.on('message', async (message) => {
       try {
         const data = JSON.parse(message.toString());
-        logger.info('WebSocket', 'Message received', { messageType: data.type });
 
         if (data.type === 'ping') {
           ws.send(JSON.stringify({ type: 'pong' }));
-          logger.info('WebSocket', 'Pong sent');
         }
       } catch (error) {
         logger.error('WebSocket', 'Error processing message', {
@@ -44,7 +36,7 @@ export function setupWebSocket(server: Server, path: string = '/ws') {
     });
 
     ws.on('close', () => {
-      logger.info('WebSocket', 'Client disconnected', { remainingClients: wss.clients.size });
+      // Client disconnected - no logging needed
     });
 
     ws.on('error', (error) => {

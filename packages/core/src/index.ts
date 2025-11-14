@@ -57,12 +57,15 @@ async function main(
   // Initialize configuration service (loads all env vars)
   ConfigService.initialize();
   
+  // Initialize logger with configured log level
+  const config = ConfigService.getConfig();
+  logger.initialize(config.logLevel);
+  
   // Validate required configuration
   try {
     ConfigService.validate();
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const config = ConfigService.getConfig();
     
     // Create a helpful error message for logging (with newlines)
     const logMessage = `${errorMessage}\n\n` +
@@ -83,36 +86,38 @@ async function main(
     throw new Error(apiMessage);
   }
 
-          // Get configuration from ConfigService (single source of truth)
-          const config = ConfigService.getConfig();
-          const explorationUrl = url ?? config.startingUrl;
-          const iterations = maxIterations ?? config.maxIterations;
+  // Get configuration from ConfigService (single source of truth)
+  const explorationUrl = url ?? config.startingUrl;
+  const iterations = maxIterations ?? config.maxIterations;
+  // Use provided credentials or fall back to config credentials
+  const finalCredentials = credentials ?? ConfigService.getCredentials();
 
-          logger.info('Agent', '🚀 DAV.ai Agent Starting...');
-          logger.info('Agent', `Starting URL: ${explorationUrl}`);
-          logger.info('Agent', `Neo4j URI: ${config.neo4jUri}`);
-          logger.info('Agent', `LLM Provider: ${config.llmProvider}`);
-          logger.info('Agent', `LLM Model: ${config.llmModel}`);
-          logger.info('Agent', `Max Iterations Configuration:`, {
-            provided: maxIterations,
-            fromConfig: config.maxIterations,
-            final: iterations,
-          });
+  logger.info('Agent', '🚀 DAV.ai Agent Starting...');
+  logger.info('Agent', `Starting URL: ${explorationUrl}`);
+  logger.info('Agent', `Neo4j URI: ${config.neo4jUri}`);
+  logger.info('Agent', `LLM Provider: ${config.llmProvider}`);
+  logger.info('Agent', `LLM Model: ${config.llmModel}`);
+  logger.info('Agent', `Max Iterations Configuration:`, {
+    provided: maxIterations,
+    fromConfig: config.maxIterations,
+    final: iterations,
+  });
 
   let browserTools: BrowserTools | null = null;
   let neo4jTools: Neo4jTools | null = null;
 
-          try {
-            // Use AgentService to initialize and run exploration
-            const finalSessionId = sessionId || `session-${Date.now()}`;
-            logger.info('Agent', 'Initializing agent service...', { 
-              sessionId: finalSessionId,
-              hasCredentials: !!(credentials?.username || credentials?.password)
-            });
-            const serviceResult = await AgentService.runExploration(explorationUrl, iterations, finalSessionId, credentials);
-            browserTools = serviceResult.browserTools;
-            neo4jTools = serviceResult.neo4jTools;
-            logger.info('Agent', '✓ Agent service initialized');
+  try {
+    // Use AgentService to initialize and run exploration
+    const finalSessionId = sessionId || `session-${Date.now()}`;
+    logger.info('Agent', 'Initializing agent service...', { 
+      sessionId: finalSessionId,
+      hasCredentials: !!(finalCredentials?.username || finalCredentials?.password),
+      credentialsSource: credentials ? 'provided' : (ConfigService.getCredentials() ? 'config' : 'none')
+    });
+    const serviceResult = await AgentService.runExploration(explorationUrl, iterations, finalSessionId, finalCredentials);
+    browserTools = serviceResult.browserTools;
+    neo4jTools = serviceResult.neo4jTools;
+    logger.info('Agent', '✓ Agent service initialized');
 
     // If autoCleanup is false, return the result for the caller to manage
     if (!autoCleanup) {

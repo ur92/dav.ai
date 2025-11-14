@@ -15,20 +15,17 @@ const router = Router();
 
 // Health check
 router.get('/health', (req, res) => {
-  logger.info('API', 'Health check requested');
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Get configuration
 router.get('/config', async (req, res) => {
-  logger.info('API', 'Configuration requested');
   try {
     const response = await fetch(`${CORE_SERVICE_URL}/config`);
     if (!response.ok) {
       throw new Error(`Core service returned ${response.status}`);
     }
     const config = await response.json();
-    logger.info('API', 'Configuration retrieved', config);
     res.json(config);
   } catch (error) {
     logger.error('API', 'Error retrieving configuration', {
@@ -41,14 +38,29 @@ router.get('/config', async (req, res) => {
   }
 });
 
+// Get credentials from config
+router.get('/credentials', async (req, res) => {
+  try {
+    const response = await fetch(`${CORE_SERVICE_URL}/credentials`);
+    if (!response.ok) {
+      throw new Error(`Core service returned ${response.status}`);
+    }
+    const credentials = await response.json();
+    res.json(credentials);
+  } catch (error) {
+    logger.error('API', 'Error retrieving credentials', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({
+      error: 'Failed to retrieve credentials',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 // Start exploration
 router.post('/explore', async (req, res) => {
   const { url, maxIterations, credentials } = req.body;
-  logger.info('API', 'Exploration request', { 
-    url, 
-    maxIterations, 
-    hasCredentials: !!(credentials?.username || credentials?.password) 
-  });
 
   if (!url) {
     logger.error('API', 'Exploration failed: URL is required');
@@ -56,8 +68,6 @@ router.post('/explore', async (req, res) => {
   }
 
   try {
-    logger.info('API', 'Calling core service to start exploration', { url, maxIterations });
-    
     const response = await fetch(`${CORE_SERVICE_URL}/explore`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -70,7 +80,6 @@ router.post('/explore', async (req, res) => {
     }
 
     const result = await response.json();
-    logger.info('API', 'Exploration started successfully', { sessionId: result.sessionId });
 
     // Set up polling for completion (or use WebSocket from core service in future)
     // For now, we'll rely on the client polling /session/:id
@@ -91,25 +100,18 @@ router.post('/explore', async (req, res) => {
 // Get session status
 router.get('/session/:sessionId', async (req, res) => {
   const { sessionId } = req.params;
-  logger.info('API', 'Session status requested', { sessionId });
 
   try {
     const response = await fetch(`${CORE_SERVICE_URL}/session/${sessionId}`);
     
     if (!response.ok) {
       if (response.status === 404) {
-        logger.warn('API', 'Session not found', { sessionId });
         return res.status(404).json({ error: 'Session not found' });
       }
       throw new Error(`Core service returned ${response.status}`);
     }
 
     const session = await response.json();
-    logger.info('API', 'Session status', {
-      sessionId,
-      status: session.status,
-      hasState: !!session.currentState,
-    });
     res.json(session);
   } catch (error) {
     logger.error('API', 'Error retrieving session', {
@@ -126,7 +128,6 @@ router.get('/session/:sessionId', async (req, res) => {
 // Stop exploration
 router.post('/session/:sessionId/stop', async (req, res) => {
   const { sessionId } = req.params;
-  logger.info('API', 'Stop session requested', { sessionId });
 
   try {
     const response = await fetch(`${CORE_SERVICE_URL}/session/${sessionId}/stop`, {
@@ -135,7 +136,6 @@ router.post('/session/:sessionId/stop', async (req, res) => {
 
     if (!response.ok) {
       if (response.status === 404) {
-        logger.warn('API', 'Session not found for stop', { sessionId });
         return res.status(404).json({ error: 'Session not found' });
       }
       const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
@@ -143,7 +143,6 @@ router.post('/session/:sessionId/stop', async (req, res) => {
     }
 
     const result = await response.json();
-    logger.info('API', 'Session stopped and cleaned up', { sessionId });
     res.json(result);
   } catch (error) {
     logger.error('API', 'Error stopping session', {
@@ -160,14 +159,12 @@ router.post('/session/:sessionId/stop', async (req, res) => {
 
 // List all sessions
 router.get('/sessions', async (req, res) => {
-  logger.info('API', 'List sessions requested');
   try {
     const response = await fetch(`${CORE_SERVICE_URL}/sessions`);
     if (!response.ok) {
       throw new Error(`Core service returned ${response.status}`);
     }
     const data = await response.json();
-    logger.info('API', 'Active sessions', { count: data.sessions?.length || 0 });
     res.json(data);
   } catch (error) {
     logger.error('API', 'Error listing sessions', {
@@ -182,7 +179,6 @@ router.get('/sessions', async (req, res) => {
 
 // Query Neo4j graph, optionally filtered by sessionId
 router.get('/graph', async (req, res) => {
-  logger.info('API', 'Graph query requested', { sessionId: req.query.sessionId });
   try {
     const limitParam = req.query.limit;
     const limit = limitParam ? Math.floor(Number(limitParam)) || 100 : 100;
@@ -200,10 +196,6 @@ router.get('/graph', async (req, res) => {
     }
 
     const graphData = await response.json();
-    logger.info('API', 'Graph query result', {
-      nodeCount: graphData.nodes?.length || 0,
-      edgeCount: graphData.edges?.length || 0,
-    });
     res.json(graphData);
   } catch (error) {
     logger.error('API', 'Error querying graph', {

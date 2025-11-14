@@ -105,5 +105,71 @@ export class Neo4jTools {
       return false;
     }
   }
+
+  /**
+   * Delete all graph data for a specific session
+   * This ensures each session starts with a fresh, empty graph
+   */
+  async deleteSessionData(sessionId: string): Promise<void> {
+    const session = this.driver.session();
+    
+    try {
+      // Escape single quotes in sessionId
+      const safeSessionId = sessionId.replace(/'/g, "\\'");
+      
+      // Delete all relationships for this session first (required before deleting nodes)
+      const deleteRelationshipsQuery = `
+        MATCH ()-[r:TRANSITIONED_BY {sessionId: '${safeSessionId}'}]-()
+        DELETE r
+      `;
+      
+      // Delete all nodes for this session
+      const deleteNodesQuery = `
+        MATCH (n:State {sessionId: '${safeSessionId}'})
+        DELETE n
+      `;
+      
+      await session.executeWrite(async (tx) => {
+        await tx.run(deleteRelationshipsQuery);
+        await tx.run(deleteNodesQuery);
+      });
+      
+      logger.info('Neo4j', `Deleted all graph data for session: ${sessionId}`);
+    } catch (error) {
+      logger.error('Neo4j', 'Error deleting session data', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Ensure indexes exist for better query performance
+   * This should be called once at application startup
+   */
+  async ensureIndexes(): Promise<void> {
+    const session = this.driver.session();
+    
+    try {
+      // Create index on sessionId for faster session-based queries
+      const createIndexQuery = `
+        CREATE INDEX sessionId_index IF NOT EXISTS
+        FOR (n:State) ON (n.sessionId)
+      `;
+      
+      await session.run(createIndexQuery);
+      logger.info('Neo4j', 'Ensured indexes exist for sessionId');
+    } catch (error) {
+      // Index might already exist, which is fine
+      logger.warn('Neo4j', 'Could not create index (might already exist)', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      await session.close();
+    }
+  }
 }
 

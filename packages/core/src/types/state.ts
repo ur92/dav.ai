@@ -9,6 +9,7 @@ export interface DavAgentState {
   explorationStatus: 'CONTINUE' | 'FLOW_END' | 'FAILURE';
   pendingAction: PendingAction | null; // Deprecated: use pendingActions instead
   pendingActions: PendingAction[]; // Array of actions to execute in batch
+  visitedFingerprints: string[]; // Track visited page fingerprints to detect cycles
 }
 
 /**

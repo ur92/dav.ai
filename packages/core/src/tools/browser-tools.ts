@@ -46,7 +46,20 @@ export class BrowserTools {
 
     // Navigate to the URL if provided, otherwise observe current page
     if (url) {
-      await this.page.goto(url, { waitUntil: 'networkidle' });
+      try {
+        await this.page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+      } catch (error: any) {
+        // Handle connection errors more gracefully
+        if (error.message?.includes('ERR_CONNECTION_REFUSED') || error.message?.includes('net::ERR_CONNECTION_REFUSED')) {
+          throw new Error(
+            `Connection refused: Unable to connect to ${url}. ` +
+            `Please ensure the development server is running. ` +
+            `For test-app, run: yarn dev:test-app`
+          );
+        }
+        // Re-throw other errors
+        throw error;
+      }
     }
     const finalUrl = this.page.url();
 
@@ -192,7 +205,20 @@ export class BrowserTools {
     if (!this.page) {
       throw new Error('Browser not initialized.');
     }
-    await this.page.goto(url, { waitUntil: 'networkidle' });
+    try {
+      await this.page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+    } catch (error: any) {
+      // Handle connection errors more gracefully
+      if (error.message?.includes('ERR_CONNECTION_REFUSED') || error.message?.includes('net::ERR_CONNECTION_REFUSED')) {
+        throw new Error(
+          `Connection refused: Unable to connect to ${url}. ` +
+          `Please ensure the development server is running. ` +
+          `For test-app, run: yarn dev:test-app`
+        );
+      }
+      // Re-throw other errors
+      throw error;
+    }
   }
 
   /**

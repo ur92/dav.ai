@@ -12,6 +12,28 @@
   align-items: center;
 }
 
+.header-actions {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+.create-button-header {
+  padding: 10px 20px;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 2px solid white;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.create-button-header:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
 .users-header h1 {
   color: white;
   margin: 0;
@@ -37,12 +59,8 @@
 .users-content {
   max-width: 1200px;
   margin: 0 auto;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 30px;
 }
 
-.users-form-card,
 .users-list-card {
   background: white;
   border-radius: 12px;
@@ -50,7 +68,6 @@
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
 }
 
-.users-form-card h2,
 .users-list-card h2 {
   margin: 0 0 20px 0;
   color: #333;
@@ -167,15 +184,180 @@
   background: #c0392b;
 }
 
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .users-container {
+    padding: 15px;
+  }
+
+  .users-header {
+    margin-bottom: 20px;
+  }
+
+  .users-header h1 {
+    font-size: 28px;
+  }
+
+  .users-list-card {
+    padding: 25px;
+  }
+}
+
 @media (max-width: 768px) {
-  .users-content {
-    grid-template-columns: 1fr;
+  .users-container {
+    padding: 15px 10px;
   }
 
   .users-header {
     flex-direction: column;
     gap: 15px;
     align-items: flex-start;
+    margin-bottom: 20px;
+  }
+
+  .users-header h1 {
+    font-size: 24px;
+    width: 100%;
+  }
+
+  .header-actions {
+    width: 100%;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .create-button-header,
+  .logout-button {
+    width: 100%;
+    padding: 12px 20px;
+    font-size: 15px;
+  }
+
+  .users-list-card {
+    padding: 20px 15px;
+  }
+
+  .users-list-card h2 {
+    font-size: 20px;
+    margin-bottom: 15px;
+  }
+
+  .table-header {
+    display: none; /* Hide header on mobile */
+  }
+
+  .table-row {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    padding: 15px;
+    background: #fafafa;
+    gap: 12px;
+  }
+
+  .table-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .table-cell:first-child {
+    font-weight: 600;
+    color: #333;
+    font-size: 16px;
+  }
+
+  .table-cell:first-child::before {
+    content: 'Username:';
+    font-size: 12px;
+    font-weight: 500;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+
+  .delete-button {
+    width: 100%;
+    padding: 12px;
+    margin-top: 4px;
+  }
+
+  .empty-message {
+    padding: 30px 20px;
+    font-size: 15px;
+  }
+}
+
+@media (max-width: 480px) {
+  .users-container {
+    padding: 10px;
+  }
+
+  .users-header h1 {
+    font-size: 22px;
+  }
+
+  .users-list-card {
+    padding: 15px 10px;
+  }
+
+  .users-list-card h2 {
+    font-size: 18px;
+  }
+
+  .table-row {
+    padding: 12px;
+  }
+
+  .create-button-header,
+  .logout-button {
+    padding: 14px 20px; /* Larger touch target */
+    font-size: 16px;
+  }
+}
+
+/* Tablet adjustments */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .users-content {
+    max-width: 100%;
+  }
+
+  .table-header,
+  .table-row {
+    gap: 15px;
+  }
+}
+
+/* Landscape mobile */
+@media (max-width: 768px) and (orientation: landscape) {
+  .users-container {
+    padding: 10px;
+  }
+
+  .users-header {
+    margin-bottom: 15px;
+  }
+
+  .users-list-card {
+    padding: 20px;
+  }
+}
+
+/* Very small screens */
+@media (max-width: 360px) {
+  .users-header h1 {
+    font-size: 20px;
+  }
+
+  .users-list-card h2 {
+    font-size: 18px;
+  }
+
+  .table-row {
+    padding: 12px;
   }
 }
 

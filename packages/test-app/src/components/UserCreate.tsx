@@ -1,41 +1,51 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { login, isAuthenticated } from '../utils/storage';
-import './Login.css';
+import { addUser, getUsers, type User } from '../utils/storage';
+import './UserCreate.css';
 
-export function Login() {
+export function UserCreate() {
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    // Redirect if already authenticated
-    if (isAuthenticated()) {
-      navigate('/users/list', { replace: true });
-    }
-  }, [navigate]);
+  const [success, setSuccess] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess(false);
 
     if (!username || !password) {
       setError('Please enter both username and password');
       return;
     }
 
-    if (login(username, password)) {
-      navigate('/users/list');
-    } else {
-      setError('Invalid username or password');
+    const users = getUsers();
+    if (users.some((u: User) => u.username === username)) {
+      setError('Username already exists');
+      return;
     }
+
+    addUser({ username, password });
+    setSuccess(true);
+    setUsername('');
+    setPassword('');
+    
+    // Redirect to users list after a short delay
+    setTimeout(() => {
+      navigate('/users/list');
+    }, 1500);
   };
 
   return (
-    <div className="login-container">
-      <div className="login-card">
-        <h1>Login</h1>
+    <div className="user-create-container">
+      <div className="user-create-card">
+        <div className="user-create-header">
+          <h1>Create New User</h1>
+          <button onClick={() => navigate('/users/list')} className="back-button">
+            ← Back to Users
+          </button>
+        </div>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label htmlFor="username">Username</label>
@@ -56,17 +66,15 @@ export function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter password"
-              autoComplete="current-password"
+              autoComplete="new-password"
             />
           </div>
           {error && <div className="error-message">{error}</div>}
-          <button type="submit" className="login-button">
-            Login
+          {success && <div className="success-message">User created successfully! Redirecting...</div>}
+          <button type="submit" className="create-button">
+            Create User
           </button>
         </form>
-        <div className="login-hint">
-          <p>Default credentials: admin / admin123</p>
-        </div>
       </div>
     </div>
   );

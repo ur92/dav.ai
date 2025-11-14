@@ -1,16 +1,11 @@
 import { useState, useEffect } from 'react';
-import { getUsers, addUser, deleteUser, logout, type User } from '../utils/storage';
+import { useNavigate } from 'react-router-dom';
+import { getUsers, deleteUser, logout, type User } from '../utils/storage';
 import './UsersList.css';
 
-interface UsersListProps {
-  onLogout: () => void;
-}
-
-export function UsersList({ onLogout }: UsersListProps) {
+export function UsersList() {
+  const navigate = useNavigate();
   const [users, setUsers] = useState<User[]>([]);
-  const [newUsername, setNewUsername] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [error, setError] = useState('');
 
   useEffect(() => {
     loadUsers();
@@ -18,26 +13,6 @@ export function UsersList({ onLogout }: UsersListProps) {
 
   const loadUsers = () => {
     setUsers(getUsers());
-  };
-
-  const handleAddUser = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-
-    if (!newUsername || !newPassword) {
-      setError('Please enter both username and password');
-      return;
-    }
-
-    if (users.some((u) => u.username === newUsername)) {
-      setError('Username already exists');
-      return;
-    }
-
-    addUser({ username: newUsername, password: newPassword });
-    setNewUsername('');
-    setNewPassword('');
-    loadUsers();
   };
 
   const handleDeleteUser = (id: string) => {
@@ -49,49 +24,24 @@ export function UsersList({ onLogout }: UsersListProps) {
 
   const handleLogout = () => {
     logout();
-    onLogout();
+    navigate('/login');
   };
 
   return (
     <div className="users-container">
       <div className="users-header">
         <h1>User Management</h1>
-        <button onClick={handleLogout} className="logout-button">
-          Logout
-        </button>
+        <div className="header-actions">
+          <button onClick={() => navigate('/users/create')} className="create-button-header">
+            Create User
+          </button>
+          <button onClick={handleLogout} className="logout-button">
+            Logout
+          </button>
+        </div>
       </div>
 
       <div className="users-content">
-        <div className="users-form-card">
-          <h2>Create New User</h2>
-          <form onSubmit={handleAddUser}>
-            <div className="form-group">
-              <label htmlFor="new-username">Username</label>
-              <input
-                id="new-username"
-                type="text"
-                value={newUsername}
-                onChange={(e) => setNewUsername(e.target.value)}
-                placeholder="Enter username"
-              />
-            </div>
-            <div className="form-group">
-              <label htmlFor="new-password">Password</label>
-              <input
-                id="new-password"
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Enter password"
-              />
-            </div>
-            {error && <div className="error-message">{error}</div>}
-            <button type="submit" className="add-button">
-              Add User
-            </button>
-          </form>
-        </div>
-
         <div className="users-list-card">
           <h2>Users List</h2>
           {users.length === 0 ? (

@@ -93,3 +93,85 @@
   font-size: 14px;
 }
 
+/* Responsive Design */
+@media (max-width: 768px) {
+  .login-container {
+    padding: 15px;
+  }
+
+  .login-card {
+    padding: 30px 20px;
+    max-width: 100%;
+  }
+
+  .login-card h1 {
+    font-size: 24px;
+    margin-bottom: 25px;
+  }
+
+  .form-group {
+    margin-bottom: 18px;
+  }
+
+  .form-group input {
+    padding: 10px;
+    font-size: 16px; /* Prevent zoom on iOS */
+  }
+
+  .login-button {
+    padding: 14px; /* Larger touch target */
+    font-size: 16px;
+  }
+
+  .login-hint {
+    margin-top: 15px;
+    padding-top: 15px;
+  }
+
+  .login-hint p {
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-container {
+    padding: 10px;
+  }
+
+  .login-card {
+    padding: 25px 15px;
+  }
+
+  .login-card h1 {
+    font-size: 22px;
+    margin-bottom: 20px;
+  }
+}
+
+/* Tablet adjustments */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .login-card {
+    max-width: 450px;
+  }
+}
+
+/* Landscape mobile */
+@media (max-width: 768px) and (orientation: landscape) {
+  .login-container {
+    padding: 10px;
+    align-items: flex-start;
+    padding-top: 20px;
+  }
+
+  .login-card {
+    padding: 25px 20px;
+  }
+}
+
+/* Very small screens */
+@media (max-width: 360px) {
+  .login-card h1 {
+    font-size: 20px;
+  }
+}
+

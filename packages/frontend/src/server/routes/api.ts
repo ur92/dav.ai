@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { main } from '@dav-ai/core/dist/index.js';
 import { SessionService } from '@dav-ai/core/dist/services/session-service.js';
 import { GraphService } from '@dav-ai/core/dist/services/graph-service.js';
 import { ConfigService } from '@dav-ai/core/dist/services/config-service.js';
@@ -58,10 +59,20 @@ router.post('/explore', async (req, res) => {
 
   try {
     const iterations = maxIterations || ConfigService.getConfig().maxIterations;
-    logger.info('API', 'Creating new session', { url, iterations });
+    logger.info('API', 'Starting exploration via core main()', { url, iterations });
     
-    // Create session via SessionService (all logic in core)
-    const session = await SessionService.createSession(url, iterations);
+    // Call core main() function with autoCleanup=false so we can manage the session
+    const explorationResult = await main(url, iterations, false);
+    
+    // Register session from the exploration result
+    const session = SessionService.registerSession({
+      browserTools: explorationResult.browserTools,
+      neo4jTools: explorationResult.neo4jTools,
+      agent: explorationResult.agent,
+      runPromise: explorationResult.runPromise,
+      url,
+      maxIterations: iterations,
+    });
     
     logger.info('API', 'Session created', { sessionId: session.sessionId });
 

@@ -43,8 +43,12 @@ router.get('/config', async (req, res) => {
 
 // Start exploration
 router.post('/explore', async (req, res) => {
-  const { url, maxIterations } = req.body;
-  logger.info('API', 'Exploration request', { url, maxIterations });
+  const { url, maxIterations, credentials } = req.body;
+  logger.info('API', 'Exploration request', { 
+    url, 
+    maxIterations, 
+    hasCredentials: !!(credentials?.username || credentials?.password) 
+  });
 
   if (!url) {
     logger.error('API', 'Exploration failed: URL is required');
@@ -57,7 +61,7 @@ router.post('/explore', async (req, res) => {
     const response = await fetch(`${CORE_SERVICE_URL}/explore`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, maxIterations }),
+      body: JSON.stringify({ url, maxIterations, credentials }),
     });
 
     if (!response.ok) {
@@ -176,14 +180,19 @@ router.get('/sessions', async (req, res) => {
   }
 });
 
-// Query Neo4j graph
+// Query Neo4j graph, optionally filtered by sessionId
 router.get('/graph', async (req, res) => {
-  logger.info('API', 'Graph query requested');
+  logger.info('API', 'Graph query requested', { sessionId: req.query.sessionId });
   try {
     const limitParam = req.query.limit;
     const limit = limitParam ? Math.floor(Number(limitParam)) || 100 : 100;
     const url = new URL(`${CORE_SERVICE_URL}/graph`);
     url.searchParams.set('limit', limit.toString());
+    
+    // Add sessionId if provided
+    if (req.query.sessionId) {
+      url.searchParams.set('sessionId', req.query.sessionId as string);
+    }
 
     const response = await fetch(url.toString());
     if (!response.ok) {

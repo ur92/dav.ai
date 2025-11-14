@@ -149,9 +149,14 @@ app.post('/explore', async (req, res) => {
           actionCount: finalState.actionHistory.length,
         });
 
+        // Emit exploration completion decision
+        session.decisions.push(`✅ Exploration completed (${finalState.actionHistory.length} actions)`);
+
         // Generate user stories from the exploration graph
         try {
           logger.info('Server', 'Generating user stories from exploration graph...', { sessionId: session.sessionId });
+          session.decisions.push('📖 Compiling user stories...');
+          
           const userStoryService = new UserStoryService();
           const userStories = await userStoryService.generateUserStories(session.sessionId);
           
@@ -162,13 +167,20 @@ app.post('/explore', async (req, res) => {
             sessionId: session.sessionId,
             storyCount: userStories.stories.length,
           });
+          
+          // Emit user story compilation completion
+          session.decisions.push(`📖 User stories compiled (${userStories.stories.length} stories)`);
         } catch (error) {
           logger.error('Server', 'Failed to generate user stories', {
             sessionId: session.sessionId,
             error: error instanceof Error ? error.message : String(error),
           });
+          session.decisions.push('❌ Failed to compile user stories');
           // Don't fail the session if user story generation fails
         }
+
+        // Emit session completion
+        session.decisions.push('🎉 Session completed');
 
         // Session status will be updated by SessionService
       })

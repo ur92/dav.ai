@@ -213,12 +213,16 @@ export class SessionService {
       .then(async (finalState: DavAgentState) => {
         session.status = 'completed';
         session.currentState = finalState;
+        // Note: Exploration completion and user story compilation decisions
+        // are added in server.ts after the promise resolves
         await this.saveSessionMetadata(session);
       })
       .catch(async (error: Error) => {
         session.status = 'error';
         // Optionally store error in session
         (session as any).error = error.message;
+        // Emit error decision
+        session.decisions.push(`❌ Session error: ${error.message}`);
         await this.saveSessionMetadata(session);
       });
 

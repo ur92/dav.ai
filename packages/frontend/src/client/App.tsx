@@ -432,13 +432,37 @@ function App() {
             if (!currentSession) {
               // Clear graph when no session is selected
               setGraphData(null);
+              setUserStories(null);
               return;
             }
 
             // Load graph for the selected session immediately
             loadGraph(currentSession);
-            // Clear user stories when switching sessions
-            setUserStories(null);
+            
+            // Load user stories immediately when switching sessions
+            const loadUserStories = async () => {
+              try {
+                const response = await fetch(`http://localhost:3001/api/session/${currentSession}`);
+                if (response.ok) {
+                  const session: Session = await response.json();
+                  console.log('Session data loaded:', { 
+                    sessionId: session.sessionId, 
+                    hasUserStories: !!session.userStories,
+                    userStories: session.userStories 
+                  });
+                  if (session.userStories) {
+                    setUserStories(session.userStories);
+                  } else {
+                    setUserStories(null);
+                  }
+                }
+              } catch (error) {
+                console.error('Error loading user stories:', error);
+                setUserStories(null);
+              }
+            };
+            
+            loadUserStories();
 
             let lastDecisionCount = 0;
 
@@ -457,7 +481,7 @@ function App() {
                     lastDecisionCount = session.decisions.length;
                   }
 
-                  // Update user stories if available
+                  // Update user stories if available (always check, not just when completed)
                   if (session.userStories) {
                     setUserStories(session.userStories);
                   }
@@ -480,7 +504,7 @@ function App() {
                         addActivity(decision);
                       });
                     }
-                    // Load user stories when completed
+                    // Ensure user stories are loaded when completed
                     if (session.userStories) {
                       setUserStories(session.userStories);
                     }
@@ -730,24 +754,9 @@ function App() {
                   <button
                     key={session.sessionId}
                     className={`session-tab ${currentSession === session.sessionId ? 'active' : ''}`}
-                    onClick={async () => {
+                    onClick={() => {
                       setCurrentSession(session.sessionId);
-                      loadGraph(session.sessionId);
-                      // Load user stories for this session
-                      try {
-                        const response = await fetch(`http://localhost:3001/api/session/${session.sessionId}`);
-                        if (response.ok) {
-                          const sessionData: Session = await response.json();
-                          if (sessionData.userStories) {
-                            setUserStories(sessionData.userStories);
-                          } else {
-                            setUserStories(null);
-                          }
-                        }
-                      } catch (error) {
-                        console.error('Error loading user stories:', error);
-                        setUserStories(null);
-                      }
+                      // loadGraph and userStories will be loaded by the useEffect when currentSession changes
                     }}
                   >
                     <div className="session-tab-content">

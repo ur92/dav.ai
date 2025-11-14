@@ -163,6 +163,20 @@ app.post('/explore', async (req, res) => {
           // Store user stories in session for retrieval
           (session as any).userStories = userStories;
           
+          // Persist user stories to Neo4j
+          try {
+            await session.neo4jTools.saveUserStories(session.sessionId, userStories);
+            logger.info('Server', 'User stories persisted to Neo4j', {
+              sessionId: session.sessionId,
+            });
+          } catch (error) {
+            logger.error('Server', 'Failed to persist user stories to Neo4j', {
+              sessionId: session.sessionId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            // Don't fail if persistence fails, user stories are still in memory
+          }
+          
           logger.info('Server', 'User stories generated successfully', {
             sessionId: session.sessionId,
             storyCount: userStories.stories.length,
@@ -213,16 +227,62 @@ app.post('/explore', async (req, res) => {
 });
 
 // Get session status
-app.get('/session/:sessionId', (req, res) => {
+app.get('/session/:sessionId', async (req, res) => {
   const { sessionId } = req.params;
 
   try {
-    const session = SessionService.getSession(sessionId);
+    // First, try to get session from memory
+    let session = SessionService.getSession(sessionId);
 
     if (!session) {
-      return res.status(404).json({ error: 'Session not found' });
+      // Session not in memory, try to load from Neo4j
+      try {
+        const tools = SessionService.getPersistenceTools();
+        const metadata = await tools.loadSessionMetadata(sessionId);
+        
+        if (!metadata) {
+          return res.status(404).json({ error: 'Session not found' });
+        }
+
+        // Return session metadata from Neo4j
+        // Note: For persisted sessions, we don't have currentState or decisions
+        // These are only available for in-memory sessions
+        const response: any = {
+          sessionId: metadata.sessionId,
+          status: metadata.status,
+          currentState: undefined,
+          decisions: [],
+        };
+        
+        if (metadata.error) {
+          response.error = metadata.error;
+        }
+        
+        // Load user stories from Neo4j if they exist
+        try {
+          const userStories = await tools.loadUserStories(sessionId);
+          if (userStories) {
+            response.userStories = userStories;
+          }
+        } catch (error) {
+          // If loading fails, just continue without user stories
+          logger.warn('Server', 'Failed to load user stories from Neo4j', {
+            sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        
+        return res.json(response);
+      } catch (error) {
+        logger.error('Server', 'Error loading session from Neo4j', {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return res.status(404).json({ error: 'Session not found' });
+      }
     }
 
+    // Session is in memory, return full data
     const response: any = {
       sessionId,
       status: session.status,

@@ -465,12 +465,21 @@ function App() {
             loadUserStories();
 
             let lastDecisionCount = 0;
+            let sessionStatus: string | null = null;
+            let intervalId: NodeJS.Timeout | null = null;
+            let isCompleted = false;
 
-            const interval = setInterval(async () => {
+            const pollSession = async () => {
               try {
                 const response = await fetch(`http://localhost:3001/api/session/${currentSession}`);
                 if (response.ok) {
                   const session: Session = await response.json();
+                  const previousStatus = sessionStatus;
+                  sessionStatus = session.status;
+                  
+                  // Check if session just completed
+                  const justCompleted = (previousStatus === 'running' || previousStatus === null) && 
+                                       (session.status === 'completed' || session.status === 'error');
                   
                   // Update activity feed with new decisions (agent decisions)
                   if (session.decisions && Array.isArray(session.decisions)) {
@@ -494,7 +503,7 @@ function App() {
                     loadGraph(currentSession);
                   }
 
-                  // Stop polling if completed
+                  // Handle completed/error sessions
                   if (session.status === 'completed' || session.status === 'error') {
                     setLoading(false);
                     loadGraph(currentSession);
@@ -508,14 +517,38 @@ function App() {
                     if (session.userStories) {
                       setUserStories(session.userStories);
                     }
+                    
+                    // Switch to slow polling when session completes
+                    if (justCompleted && intervalId) {
+                      clearInterval(intervalId);
+                      intervalId = null;
+                      isCompleted = true;
+                      // Start slow polling (every 30 seconds) for completed sessions
+                      intervalId = setInterval(pollSession, 30000);
+                    }
                   }
                 }
               } catch (error) {
                 console.error('Error polling session:', error);
               }
-            }, 500); // Poll every 500ms for faster updates
+            };
 
-            return () => clearInterval(interval);
+            // Initial poll
+            pollSession().then(() => {
+              // Start polling based on initial session status
+              if (!isCompleted && sessionStatus === 'running') {
+                intervalId = setInterval(pollSession, 500); // Poll every 500ms for running sessions
+              } else {
+                // For completed/error sessions, poll much less frequently (every 30 seconds)
+                intervalId = setInterval(pollSession, 30000); // Poll every 30s for completed sessions
+              }
+            });
+
+            return () => {
+              if (intervalId) {
+                clearInterval(intervalId);
+              }
+            };
           }, [currentSession]);
 
   const addActivity = useCallback((message: string) => {

@@ -295,6 +295,147 @@ export class Neo4jTools {
   }
 
   /**
+   * Load a single session's metadata from Neo4j
+   */
+  async loadSessionMetadata(sessionId: string): Promise<{
+    sessionId: string;
+    status: 'idle' | 'running' | 'completed' | 'error';
+    url: string;
+    maxIterations: number;
+    createdAt: Date;
+    updatedAt: Date;
+    error?: string;
+  } | null> {
+    const dbSession = this.driver.session();
+    
+    try {
+      const query = `
+        MATCH (s:Session {sessionId: $sessionId})
+        RETURN s
+      `;
+      
+      const result = await dbSession.run(query, { sessionId });
+      
+      if (result.records.length === 0) {
+        return null;
+      }
+      
+      const record = result.records[0];
+      const node = record.get('s');
+      const properties = node.properties;
+      
+      // Handle both string and neo4j datetime types
+      const createdAt = typeof properties.createdAt === 'string' 
+        ? new Date(properties.createdAt) 
+        : new Date(properties.createdAt.toString());
+      const updatedAt = typeof properties.updatedAt === 'string'
+        ? new Date(properties.updatedAt)
+        : new Date(properties.updatedAt.toString());
+      
+      return {
+        sessionId: properties.sessionId,
+        status: properties.status as 'idle' | 'running' | 'completed' | 'error',
+        url: properties.url,
+        maxIterations: typeof properties.maxIterations === 'number' 
+          ? properties.maxIterations 
+          : properties.maxIterations.toNumber(),
+        createdAt,
+        updatedAt,
+        error: properties.error || undefined,
+      };
+    } catch (error) {
+      logger.error('Neo4j', 'Error loading session metadata', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    } finally {
+      await dbSession.close();
+    }
+  }
+
+  /**
+   * Save user stories for a session to Neo4j
+   */
+  async saveUserStories(sessionId: string, userStories: {
+    stories: Array<{
+      title: string;
+      description: string;
+      steps: string[];
+      flow: Array<{ from: string; to: string; action: string }>;
+    }>;
+    summary: string;
+  }): Promise<void> {
+    const dbSession = this.driver.session();
+    
+    try {
+      const query = `
+        MATCH (s:Session {sessionId: $sessionId})
+        SET s.userStories = $userStories
+        RETURN s
+      `;
+      
+      await dbSession.run(query, {
+        sessionId,
+        userStories: JSON.stringify(userStories),
+      });
+      
+      logger.info('Neo4j', `Saved user stories for session: ${sessionId}`);
+    } catch (error) {
+      logger.error('Neo4j', 'Error saving user stories', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    } finally {
+      await dbSession.close();
+    }
+  }
+
+  /**
+   * Load user stories for a session from Neo4j
+   */
+  async loadUserStories(sessionId: string): Promise<{
+    stories: Array<{
+      title: string;
+      description: string;
+      steps: string[];
+      flow: Array<{ from: string; to: string; action: string }>;
+    }>;
+    summary: string;
+  } | null> {
+    const dbSession = this.driver.session();
+    
+    try {
+      const query = `
+        MATCH (s:Session {sessionId: $sessionId})
+        RETURN s.userStories as userStories
+      `;
+      
+      const result = await dbSession.run(query, { sessionId });
+      
+      if (result.records.length === 0) {
+        return null;
+      }
+      
+      const userStoriesStr = result.records[0].get('userStories');
+      if (!userStoriesStr) {
+        return null;
+      }
+      
+      return JSON.parse(userStoriesStr);
+    } catch (error) {
+      logger.error('Neo4j', 'Error loading user stories', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    } finally {
+      await dbSession.close();
+    }
+  }
+
+  /**
    * Delete session metadata from Neo4j
    */
   async deleteSessionMetadata(sessionId: string): Promise<void> {

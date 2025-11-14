@@ -50,7 +50,7 @@ export class SessionService {
   /**
    * Get or create persistence tools
    */
-  private static getPersistenceTools(): Neo4jTools {
+  static getPersistenceTools(): Neo4jTools {
     if (!this.persistenceTools) {
       this.initializePersistence();
     }

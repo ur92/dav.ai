@@ -171,5 +171,36 @@ export class Neo4jTools {
       await session.close();
     }
   }
+
+  /**
+   * Delete all nodes and relationships from the database
+   * WARNING: This will delete ALL data in the Neo4j database
+   */
+  async dropAllData(): Promise<void> {
+    const session = this.driver.session();
+    
+    try {
+      // Delete all relationships first (required before deleting nodes)
+      const deleteRelationshipsQuery = `MATCH ()-[r]-() DELETE r`;
+      
+      // Delete all nodes
+      const deleteNodesQuery = `MATCH (n) DELETE n`;
+      
+      await session.executeWrite(async (tx) => {
+        const relResult = await tx.run(deleteRelationshipsQuery);
+        const nodeResult = await tx.run(deleteNodesQuery);
+        logger.info('Neo4j', `Deleted ${relResult.summary.counters.updates().relationshipsDeleted || 0} relationships and ${nodeResult.summary.counters.updates().nodesDeleted || 0} nodes`);
+      });
+      
+      logger.info('Neo4j', 'Successfully dropped all data from Neo4j database');
+    } catch (error) {
+      logger.error('Neo4j', 'Error dropping all data', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    } finally {
+      await session.close();
+    }
+  }
 }
 

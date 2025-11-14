@@ -38,12 +38,16 @@ if (!envLoaded) {
  * @param url - Optional URL to explore. If not provided, uses config.startingUrl
  * @param maxIterations - Optional max iterations. If not provided, uses config.maxIterations
  * @param autoCleanup - Whether to automatically cleanup resources after completion (default: true for CLI, false for API)
+ * @param sessionId - Optional sessionId for graph isolation. If not provided, generates one.
+ * @param credentials - Optional app credentials {username, password} for automatic login
  * @returns Promise with exploration result containing browserTools, neo4jTools, agent, and runPromise
  */
 async function main(
   url?: string,
   maxIterations?: number,
-  autoCleanup: boolean = true
+  autoCleanup: boolean = true,
+  sessionId?: string,
+  credentials?: { username?: string; password?: string }
 ): Promise<{
   browserTools: BrowserTools;
   neo4jTools: Neo4jTools;
@@ -79,28 +83,36 @@ async function main(
     throw new Error(apiMessage);
   }
 
-  // Get configuration from ConfigService (single source of truth)
-  const config = ConfigService.getConfig();
-  const explorationUrl = url ?? config.startingUrl;
-  const iterations = maxIterations ?? config.maxIterations;
+          // Get configuration from ConfigService (single source of truth)
+          const config = ConfigService.getConfig();
+          const explorationUrl = url ?? config.startingUrl;
+          const iterations = maxIterations ?? config.maxIterations;
 
-  logger.info('Agent', '🚀 DAV.ai Agent Starting...');
-  logger.info('Agent', `Starting URL: ${explorationUrl}`);
-  logger.info('Agent', `Neo4j URI: ${config.neo4jUri}`);
-  logger.info('Agent', `LLM Provider: ${config.llmProvider}`);
-  logger.info('Agent', `LLM Model: ${config.llmModel}`);
-  logger.info('Agent', `Max Iterations: ${iterations}`);
+          logger.info('Agent', '🚀 DAV.ai Agent Starting...');
+          logger.info('Agent', `Starting URL: ${explorationUrl}`);
+          logger.info('Agent', `Neo4j URI: ${config.neo4jUri}`);
+          logger.info('Agent', `LLM Provider: ${config.llmProvider}`);
+          logger.info('Agent', `LLM Model: ${config.llmModel}`);
+          logger.info('Agent', `Max Iterations Configuration:`, {
+            provided: maxIterations,
+            fromConfig: config.maxIterations,
+            final: iterations,
+          });
 
   let browserTools: BrowserTools | null = null;
   let neo4jTools: Neo4jTools | null = null;
 
-  try {
-    // Use AgentService to initialize and run exploration
-    logger.info('Agent', 'Initializing agent service...');
-    const serviceResult = await AgentService.runExploration(explorationUrl, iterations);
-    browserTools = serviceResult.browserTools;
-    neo4jTools = serviceResult.neo4jTools;
-    logger.info('Agent', '✓ Agent service initialized');
+          try {
+            // Use AgentService to initialize and run exploration
+            const finalSessionId = sessionId || `session-${Date.now()}`;
+            logger.info('Agent', 'Initializing agent service...', { 
+              sessionId: finalSessionId,
+              hasCredentials: !!(credentials?.username || credentials?.password)
+            });
+            const serviceResult = await AgentService.runExploration(explorationUrl, iterations, finalSessionId, credentials);
+            browserTools = serviceResult.browserTools;
+            neo4jTools = serviceResult.neo4jTools;
+            logger.info('Agent', '✓ Agent service initialized');
 
     // If autoCleanup is false, return the result for the caller to manage
     if (!autoCleanup) {

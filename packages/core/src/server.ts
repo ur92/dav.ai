@@ -36,24 +36,6 @@ if (!envLoaded) {
 // Initialize ConfigService
 ConfigService.initialize();
 
-// Print configuration on startup (mask API key for security)
-const config = ConfigService.getConfig();
-const apiKey = ConfigService.getLLMApiKey();
-const maskedApiKey = apiKey 
-  ? (apiKey.length > 12 
-      ? `${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)}` 
-      : `${apiKey.substring(0, 4)}...`)
-  : '(not set)';
-logger.info('Config', 'Configuration loaded:', {
-  llmProvider: config.llmProvider,
-  llmModel: config.llmModel,
-  llmApiKey: maskedApiKey,
-  neo4jUri: config.neo4jUri,
-  neo4jUser: config.neo4jUser,
-  maxIterations: config.maxIterations,
-  startingUrl: config.startingUrl,
-});
-
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -85,20 +67,33 @@ app.get('/config', (req, res) => {
 
 // Start exploration
 app.post('/explore', async (req, res) => {
-  const { url, maxIterations } = req.body;
+  const { url, maxIterations, credentials } = req.body;
 
   if (!url) {
     return res.status(400).json({ error: 'URL is required' });
   }
 
   try {
-    const iterations = maxIterations || ConfigService.getConfig().maxIterations;
+    // Use provided maxIterations if it's a valid number, otherwise use config
+    const iterations = (maxIterations && typeof maxIterations === 'number' && maxIterations > 0) 
+      ? maxIterations 
+      : ConfigService.getConfig().maxIterations;
+    
+    logger.info('Server', 'Using iterations', { 
+      provided: maxIterations, 
+      final: iterations,
+      fromConfig: ConfigService.getConfig().maxIterations 
+    });
+    
+    // Generate sessionId before starting exploration
+    const sessionId = `session-${Date.now()}`;
     
     // Call main() with autoCleanup=false so we can manage the session
-    const explorationResult = await main(url, iterations, false);
+    const explorationResult = await main(url, iterations, false, sessionId, credentials);
     
     // Register session from the exploration result
     const session = SessionService.registerSession({
+      sessionId,
       browserTools: explorationResult.browserTools,
       neo4jTools: explorationResult.neo4jTools,
       agent: explorationResult.agent,

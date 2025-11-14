@@ -34,8 +34,8 @@ export class SessionService {
   ): Promise<Session> {
     const sessionId = `session-${Date.now()}`;
 
-    // Use AgentService to initialize and run exploration
-    const { browserTools, neo4jTools, agent, runPromise } = await AgentService.runExploration(url, maxIterations);
+    // Use AgentService to initialize and run exploration with sessionId
+    const { browserTools, neo4jTools, agent, runPromise } = await AgentService.runExploration(url, maxIterations, sessionId);
 
     return this.registerSession({
       sessionId,

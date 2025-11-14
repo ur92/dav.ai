@@ -1,0 +1,59 @@
+import { BrowserTools } from '../tools/browser-tools.js';
+import { Neo4jTools } from '../tools/neo4j-tools.js';
+import { DavAgent } from '../agent/dav-agent.js';
+import type { DavAgentState } from '../types/state.js';
+import { ConfigService } from './config-service.js';
+
+/**
+ * AgentService - Service for managing agent lifecycle
+ * Extracted from main() to be reusable by API endpoints
+ */
+export class AgentService {
+  /**
+   * Initialize and run an exploration
+   */
+  static async runExploration(
+    url: string,
+    maxIterations?: number
+  ): Promise<{ browserTools: BrowserTools; neo4jTools: Neo4jTools; agent: DavAgent; runPromise: Promise<DavAgentState> }> {
+    // Get configuration from ConfigService (single source of truth)
+    const config = ConfigService.getConfig();
+    const apiKey = ConfigService.getLLMApiKey();
+    
+    // Use provided maxIterations or fall back to config
+    const iterations = maxIterations ?? config.maxIterations;
+
+    if (!apiKey) {
+      throw new Error(`API key for ${config.llmProvider} is required`);
+    }
+
+    // Initialize tools
+    const browserTools = new BrowserTools();
+    const neo4jTools = new Neo4jTools(config.neo4jUri, config.neo4jUser, config.neo4jPassword);
+
+    // Initialize browser
+    await browserTools.initialize();
+
+    // Verify Neo4j connection
+    const neo4jConnected = await neo4jTools.verifyConnectivity();
+    if (!neo4jConnected) {
+      await browserTools.close();
+      await neo4jTools.close();
+      throw new Error('Failed to connect to Neo4j database.');
+    }
+
+    // Create agent
+    const agent = new DavAgent(browserTools, neo4jTools, apiKey, config.llmProvider, config.llmModel);
+
+    // Start exploration
+    const runPromise = agent.run(url, iterations);
+
+    return {
+      browserTools,
+      neo4jTools,
+      agent,
+      runPromise,
+    };
+  }
+}
+

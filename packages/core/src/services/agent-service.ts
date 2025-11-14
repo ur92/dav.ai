@@ -3,6 +3,7 @@ import { Neo4jTools } from '../tools/neo4j-tools.js';
 import { DavAgent } from '../agent/dav-agent.js';
 import type { DavAgentState } from '../types/state.js';
 import { ConfigService } from './config-service.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * AgentService - Service for managing agent lifecycle
@@ -45,8 +46,21 @@ export class AgentService {
     // Create agent
     const agent = new DavAgent(browserTools, neo4jTools, apiKey, config.llmProvider, config.llmModel);
 
-    // Start exploration
-    const runPromise = agent.run(url, iterations);
+    // Start exploration - wrap in a promise that handles errors and logs
+    const runPromise = (async () => {
+      try {
+        logger.info('AgentService', `Starting agent.run() for URL: ${url}`);
+        const result = await agent.run(url, iterations);
+        logger.info('AgentService', `Agent run completed with status: ${result.explorationStatus}`);
+        return result;
+      } catch (error) {
+        logger.error('AgentService', 'Error in agent.run()', {
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+        throw error;
+      }
+    })();
 
     return {
       browserTools,

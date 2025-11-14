@@ -6,8 +6,7 @@ export interface AppConfig {
   // LLM Configuration
   llmProvider: 'openai' | 'anthropic';
   llmModel: string;
-  openAIApiKey: string;
-  anthropicApiKey: string;
+  llmApiKey: string;
   
   // Neo4j Configuration
   neo4jUri: string;
@@ -33,8 +32,7 @@ export class ConfigService {
       // LLM Configuration
       llmProvider,
       llmModel: process.env.LLM_MODEL || (llmProvider === 'anthropic' ? 'claude-3-5-sonnet-20241022' : 'gpt-4o'),
-      openAIApiKey: process.env.OPENAI_API_KEY || '',
-      anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
+      llmApiKey: process.env.LLM_API_KEY || '',
       
       // Neo4j Configuration
       neo4jUri: process.env.NEO4J_URI || 'bolt://localhost:7687',
@@ -59,11 +57,11 @@ export class ConfigService {
   }
 
   /**
-   * Get LLM API key based on the configured provider
+   * Get LLM API key
    */
   static getLLMApiKey(): string {
     const config = this.getConfig();
-    return config.llmProvider === 'anthropic' ? config.anthropicApiKey : config.openAIApiKey;
+    return config.llmApiKey;
   }
 
   /**
@@ -75,8 +73,7 @@ export class ConfigService {
     const apiKey = this.getLLMApiKey();
     
     if (!apiKey) {
-      const keyName = config.llmProvider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY';
-      throw new Error(`${keyName} environment variable is required.`);
+      throw new Error('LLM_API_KEY environment variable is required.');
     }
   }
 }

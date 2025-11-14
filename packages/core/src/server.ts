@@ -1,0 +1,248 @@
+import express from 'express';
+import cors from 'cors';
+import { main } from './index.js';
+import { SessionService } from './services/session-service.js';
+import { GraphService } from './services/graph-service.js';
+import { ConfigService } from './services/config-service.js';
+import type { DavAgentState } from './types/state.js';
+import { logger } from './utils/logger.js';
+import * as dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+// Load environment variables from root .env file
+// Try multiple possible paths to find the .env file
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const possiblePaths = [
+  join(process.cwd(), '.env'), // From project root (when running yarn dev)
+  join(__dirname, '../../../.env'), // From packages/core/src to root
+  join(__dirname, '../../.env'), // From packages/core/dist to root (if compiled)
+];
+
+let envLoaded = false;
+for (const envPath of possiblePaths) {
+  const result = dotenv.config({ path: envPath });
+  if (!result.error) {
+    envLoaded = true;
+    break;
+  }
+}
+
+if (!envLoaded) {
+  console.warn('Warning: Could not load .env file from any of the expected locations:', possiblePaths);
+}
+
+// Initialize ConfigService
+ConfigService.initialize();
+
+// Print configuration on startup (mask API key for security)
+const config = ConfigService.getConfig();
+const apiKey = config.llmApiKey;
+const maskedApiKey = apiKey 
+  ? (apiKey.length > 12 
+      ? `${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)}` 
+      : `${apiKey.substring(0, 4)}...`)
+  : '(not set)';
+logger.info('Config', 'Configuration loaded:', {
+  llmProvider: config.llmProvider,
+  llmModel: config.llmModel,
+  llmApiKey: maskedApiKey,
+  neo4jUri: config.neo4jUri,
+  neo4jUser: config.neo4jUser,
+  maxIterations: config.maxIterations,
+  startingUrl: config.startingUrl,
+});
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', service: 'core', timestamp: new Date().toISOString() });
+});
+
+// Get configuration (safe, no sensitive data)
+app.get('/config', (req, res) => {
+  try {
+    const config = ConfigService.getConfig();
+    const safeConfig = {
+      llmProvider: config.llmProvider,
+      llmModel: config.llmModel,
+      neo4jUri: config.neo4jUri,
+      maxIterations: config.maxIterations,
+      startingUrl: config.startingUrl,
+    };
+    res.json(safeConfig);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to retrieve configuration',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// Start exploration
+app.post('/explore', async (req, res) => {
+  const { url, maxIterations } = req.body;
+
+  if (!url) {
+    return res.status(400).json({ error: 'URL is required' });
+  }
+
+  try {
+    const iterations = maxIterations || ConfigService.getConfig().maxIterations;
+    
+    // Call main() with autoCleanup=false so we can manage the session
+    const explorationResult = await main(url, iterations, false);
+    
+    // Register session from the exploration result
+    const session = SessionService.registerSession({
+      browserTools: explorationResult.browserTools,
+      neo4jTools: explorationResult.neo4jTools,
+      agent: explorationResult.agent,
+      runPromise: explorationResult.runPromise,
+      url,
+      maxIterations: iterations,
+    });
+
+    // Set up completion/error handlers
+    session.runPromise
+      .then((finalState: DavAgentState) => {
+        logger.info('Server', 'Exploration completed', {
+          sessionId: session.sessionId,
+          status: finalState.explorationStatus,
+          finalUrl: finalState.currentUrl,
+          actionCount: finalState.actionHistory.length,
+        });
+        // Session status will be updated by SessionService
+      })
+      .catch((error: Error) => {
+        logger.error('Server', 'Exploration failed', {
+          sessionId: session.sessionId,
+          error: error.message,
+          stack: error.stack,
+        });
+        // Session status will be updated by SessionService
+      });
+
+    res.json({
+      sessionId: session.sessionId,
+      status: 'started',
+      url,
+      message: 'Exploration started',
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to start exploration',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// Get session status
+app.get('/session/:sessionId', (req, res) => {
+  const { sessionId } = req.params;
+
+  try {
+    const session = SessionService.getSession(sessionId);
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    res.json({
+      sessionId,
+      status: session.status,
+      currentState: session.currentState,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to retrieve session',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// Stop exploration
+app.post('/session/:sessionId/stop', async (req, res) => {
+  const { sessionId } = req.params;
+
+  try {
+    await SessionService.stopSession(sessionId);
+    res.json({ message: 'Session stopped and cleaned up' });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('not found')) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    res.status(500).json({
+      error: 'Failed to stop session',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// List all sessions
+app.get('/sessions', (req, res) => {
+  try {
+    const sessions = SessionService.getAllSessionSummaries();
+    res.json({ sessions });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to list sessions',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// Query Neo4j graph
+app.get('/graph', async (req, res) => {
+  try {
+    // Ensure limit is an integer - handle string, number, or undefined
+    const limitParam = req.query.limit;
+    let limit = 100;
+    if (limitParam) {
+      const num = typeof limitParam === 'string' ? parseInt(limitParam, 10) : Number(limitParam);
+      limit = Math.floor(num) || 100;
+    }
+    const graphData = await GraphService.queryGraph(limit);
+    res.json(graphData);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to query graph',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+export function startServer(port: number = 3000) {
+  app.listen(port, () => {
+    const config = ConfigService.getConfig();
+    const apiKey = config.llmApiKey;
+    const maskedApiKey = apiKey 
+      ? (apiKey.length > 12 
+          ? `${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)}` 
+          : `${apiKey.substring(0, 4)}...`)
+      : '(not set)';
+    
+    logger.info('Server', `🚀 Core service running on http://localhost:${port}`);
+    logger.info('Config', 'Current configuration:', {
+      llmProvider: config.llmProvider,
+      llmModel: config.llmModel,
+      llmApiKey: maskedApiKey,
+      neo4jUri: config.neo4jUri,
+      neo4jUser: config.neo4jUser,
+      maxIterations: config.maxIterations,
+      startingUrl: config.startingUrl,
+    });
+  });
+}
+
+// Run server if this is the main module
+if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('server.js')) {
+  const port = parseInt(process.env.CORE_PORT || '3002', 10);
+  startServer(port);
+}
+

@@ -368,42 +368,59 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
    * Run the agent starting from a given URL
    */
   async run(startingUrl: string, maxIterations: number = 20): Promise<DavAgentState> {
-    const compiledGraph = this.compile();
+    logger.info('AGENT', `[run] Starting run method for URL: ${startingUrl}, maxIterations: ${maxIterations}`);
+    
+    try {
+      logger.info('AGENT', '[run] Compiling graph...');
+      const compiledGraph = this.compile();
+      logger.info('AGENT', '[run] Graph compiled successfully');
 
-    const initialState: DavAgentState = {
-      currentUrl: startingUrl,
-      domState: '',
-      actionHistory: [],
-      neo4jQueries: [],
-      explorationStatus: 'CONTINUE',
-      pendingAction: null,
-    };
+      const initialState: DavAgentState = {
+        currentUrl: startingUrl,
+        domState: '',
+        actionHistory: [],
+        neo4jQueries: [],
+        explorationStatus: 'CONTINUE',
+        pendingAction: null,
+      };
 
-    let currentState = initialState;
-    let iterations = 0;
+      let currentState = initialState;
+      let iterations = 0;
 
-    logger.info('AGENT', `Starting exploration from: ${startingUrl}`);
+      logger.info('AGENT', `[run] Starting exploration from: ${startingUrl}`);
 
-    while (currentState.explorationStatus === 'CONTINUE' && iterations < maxIterations) {
-      try {
-        const result = await compiledGraph.invoke(currentState);
-        currentState = result as DavAgentState;
-        iterations++;
+      while (currentState.explorationStatus === 'CONTINUE' && iterations < maxIterations) {
+        try {
+          logger.info('AGENT', `[run] Invoking graph for iteration ${iterations + 1}...`);
+          const result = await compiledGraph.invoke(currentState);
+          currentState = result as DavAgentState;
+          iterations++;
 
-        logger.info('AGENT', `Iteration ${iterations}/${maxIterations} - Status: ${currentState.explorationStatus}`);
-      } catch (error) {
-        logger.error('AGENT', `Error in iteration ${iterations}`, { error: error instanceof Error ? error.message : String(error) });
-        currentState.explorationStatus = 'FAILURE';
-        break;
+          logger.info('AGENT', `[run] Iteration ${iterations}/${maxIterations} - Status: ${currentState.explorationStatus}`);
+        } catch (error) {
+          logger.error('AGENT', `[run] Error in iteration ${iterations}`, { 
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          });
+          currentState.explorationStatus = 'FAILURE';
+          break;
+        }
       }
-    }
 
-    if (iterations >= maxIterations) {
-      logger.info('AGENT', 'Reached maximum iterations limit.');
-      currentState.explorationStatus = 'FLOW_END';
-    }
+      if (iterations >= maxIterations) {
+        logger.info('AGENT', '[run] Reached maximum iterations limit.');
+        currentState.explorationStatus = 'FLOW_END';
+      }
 
-    return currentState;
+      logger.info('AGENT', `[run] Exploration finished. Final status: ${currentState.explorationStatus}, Iterations: ${iterations}`);
+      return currentState;
+    } catch (error) {
+      logger.error('AGENT', '[run] Fatal error in run method', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      throw error;
+    }
   }
 }
 

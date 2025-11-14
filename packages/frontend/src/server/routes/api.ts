@@ -1,10 +1,8 @@
 import { Router } from 'express';
-import { main } from '@dav-ai/core/dist/index.js';
-import { SessionService } from '@dav-ai/core/dist/services/session-service.js';
-import { GraphService } from '@dav-ai/core/dist/services/graph-service.js';
-import { ConfigService } from '@dav-ai/core/dist/services/config-service.js';
-import type { DavAgentState } from '@dav-ai/core/dist/types/state.js';
 import { logger } from '../utils/logger.js';
+
+// Core service URL - can be configured via environment variable
+const CORE_SERVICE_URL = process.env.CORE_SERVICE_URL || 'http://localhost:3002';
 
 // Broadcast function will be set by the main server
 export let broadcast: ((data: any) => void) | null = null;
@@ -22,20 +20,16 @@ router.get('/health', (req, res) => {
 });
 
 // Get configuration
-router.get('/config', (req, res) => {
+router.get('/config', async (req, res) => {
   logger.info('API', 'Configuration requested');
   try {
-    const config = ConfigService.getConfig();
-    // Return only safe configuration (exclude sensitive data like API keys)
-    const safeConfig = {
-      llmProvider: config.llmProvider,
-      llmModel: config.llmModel,
-      neo4jUri: config.neo4jUri,
-      maxIterations: config.maxIterations,
-      startingUrl: config.startingUrl,
-    };
-    logger.info('API', 'Configuration retrieved', safeConfig);
-    res.json(safeConfig);
+    const response = await fetch(`${CORE_SERVICE_URL}/config`);
+    if (!response.ok) {
+      throw new Error(`Core service returned ${response.status}`);
+    }
+    const config = await response.json();
+    logger.info('API', 'Configuration retrieved', config);
+    res.json(config);
   } catch (error) {
     logger.error('API', 'Error retrieving configuration', {
       error: error instanceof Error ? error.message : String(error),
@@ -58,63 +52,26 @@ router.post('/explore', async (req, res) => {
   }
 
   try {
-    const iterations = maxIterations || ConfigService.getConfig().maxIterations;
-    logger.info('API', 'Starting exploration via core main()', { url, iterations });
+    logger.info('API', 'Calling core service to start exploration', { url, maxIterations });
     
-    // Call core main() function with autoCleanup=false so we can manage the session
-    const explorationResult = await main(url, iterations, false);
-    
-    // Register session from the exploration result
-    const session = SessionService.registerSession({
-      browserTools: explorationResult.browserTools,
-      neo4jTools: explorationResult.neo4jTools,
-      agent: explorationResult.agent,
-      runPromise: explorationResult.runPromise,
-      url,
-      maxIterations: iterations,
+    const response = await fetch(`${CORE_SERVICE_URL}/explore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, maxIterations }),
     });
-    
-    logger.info('API', 'Session created', { sessionId: session.sessionId });
 
-    // Set up WebSocket notifications
-    session.runPromise
-      .then((finalState: DavAgentState) => {
-        logger.info('API', 'Exploration completed', {
-          sessionId: session.sessionId,
-          status: finalState.explorationStatus,
-          finalUrl: finalState.currentUrl,
-          actionCount: finalState.actionHistory.length,
-        });
-        if (broadcast) {
-          broadcast({
-            type: 'exploration_complete',
-            sessionId: session.sessionId,
-            state: finalState,
-          });
-        }
-      })
-      .catch((error: Error) => {
-        logger.error('API', 'Exploration failed', {
-          sessionId: session.sessionId,
-          error: error.message,
-          stack: error.stack,
-        });
-        if (broadcast) {
-          broadcast({
-            type: 'exploration_error',
-            sessionId: session.sessionId,
-            error: error.message,
-          });
-        }
-      });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(errorData.message || `Core service returned ${response.status}`);
+    }
 
-    logger.info('API', 'Exploration started successfully', { sessionId: session.sessionId });
-    res.json({
-      sessionId: session.sessionId,
-      status: 'started',
-      url,
-      message: 'Exploration started',
-    });
+    const result = await response.json();
+    logger.info('API', 'Exploration started successfully', { sessionId: result.sessionId });
+
+    // Set up polling for completion (or use WebSocket from core service in future)
+    // For now, we'll rely on the client polling /session/:id
+
+    res.json(result);
   } catch (error) {
     logger.error('API', 'Error starting exploration', {
       error: error instanceof Error ? error.message : String(error),
@@ -128,28 +85,28 @@ router.post('/explore', async (req, res) => {
 });
 
 // Get session status
-router.get('/session/:sessionId', (req, res) => {
+router.get('/session/:sessionId', async (req, res) => {
   const { sessionId } = req.params;
   logger.info('API', 'Session status requested', { sessionId });
 
   try {
-    const session = SessionService.getSession(sessionId);
-
-    if (!session) {
-      logger.warn('API', 'Session not found', { sessionId });
-      return res.status(404).json({ error: 'Session not found' });
+    const response = await fetch(`${CORE_SERVICE_URL}/session/${sessionId}`);
+    
+    if (!response.ok) {
+      if (response.status === 404) {
+        logger.warn('API', 'Session not found', { sessionId });
+        return res.status(404).json({ error: 'Session not found' });
+      }
+      throw new Error(`Core service returned ${response.status}`);
     }
 
+    const session = await response.json();
     logger.info('API', 'Session status', {
       sessionId,
       status: session.status,
       hasState: !!session.currentState,
     });
-    res.json({
-      sessionId,
-      status: session.status,
-      currentState: session.currentState,
-    });
+    res.json(session);
   } catch (error) {
     logger.error('API', 'Error retrieving session', {
       sessionId,
@@ -168,15 +125,23 @@ router.post('/session/:sessionId/stop', async (req, res) => {
   logger.info('API', 'Stop session requested', { sessionId });
 
   try {
-    await SessionService.stopSession(sessionId);
-    logger.info('API', 'Session stopped and cleaned up', { sessionId });
-    res.json({ message: 'Session stopped and cleaned up' });
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('not found')) {
-      logger.warn('API', 'Session not found for stop', { sessionId });
-      return res.status(404).json({ error: 'Session not found' });
+    const response = await fetch(`${CORE_SERVICE_URL}/session/${sessionId}/stop`, {
+      method: 'POST',
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        logger.warn('API', 'Session not found for stop', { sessionId });
+        return res.status(404).json({ error: 'Session not found' });
+      }
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(errorData.message || `Core service returned ${response.status}`);
     }
 
+    const result = await response.json();
+    logger.info('API', 'Session stopped and cleaned up', { sessionId });
+    res.json(result);
+  } catch (error) {
     logger.error('API', 'Error stopping session', {
       sessionId,
       error: error instanceof Error ? error.message : String(error),
@@ -190,12 +155,16 @@ router.post('/session/:sessionId/stop', async (req, res) => {
 });
 
 // List all sessions
-router.get('/sessions', (req, res) => {
+router.get('/sessions', async (req, res) => {
   logger.info('API', 'List sessions requested');
   try {
-    const sessions = SessionService.getAllSessionSummaries();
-    logger.info('API', 'Active sessions', { count: sessions.length });
-    res.json({ sessions });
+    const response = await fetch(`${CORE_SERVICE_URL}/sessions`);
+    if (!response.ok) {
+      throw new Error(`Core service returned ${response.status}`);
+    }
+    const data = await response.json();
+    logger.info('API', 'Active sessions', { count: data.sessions?.length || 0 });
+    res.json(data);
   } catch (error) {
     logger.error('API', 'Error listing sessions', {
       error: error instanceof Error ? error.message : String(error),
@@ -211,11 +180,20 @@ router.get('/sessions', (req, res) => {
 router.get('/graph', async (req, res) => {
   logger.info('API', 'Graph query requested');
   try {
-    const limit = parseInt(req.query.limit as string) || 100;
-    const graphData = await GraphService.queryGraph(limit);
+    const limitParam = req.query.limit;
+    const limit = limitParam ? Math.floor(Number(limitParam)) || 100 : 100;
+    const url = new URL(`${CORE_SERVICE_URL}/graph`);
+    url.searchParams.set('limit', limit.toString());
+
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      throw new Error(`Core service returned ${response.status}`);
+    }
+
+    const graphData = await response.json();
     logger.info('API', 'Graph query result', {
-      nodeCount: graphData.nodes.length,
-      edgeCount: graphData.edges.length,
+      nodeCount: graphData.nodes?.length || 0,
+      edgeCount: graphData.edges?.length || 0,
     });
     res.json(graphData);
   } catch (error) {

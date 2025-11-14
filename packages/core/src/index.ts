@@ -9,11 +9,27 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 // Load environment variables from root .env file
+// Try multiple possible paths to find the .env file
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-// Go from packages/core/dist/ or packages/core/src/ to root
-const rootEnvPath = join(__dirname, '../../.env');
-dotenv.config({ path: rootEnvPath });
+const possiblePaths = [
+  join(process.cwd(), '.env'), // From project root (when running yarn dev)
+  join(__dirname, '../../../.env'), // From packages/core/src to root
+  join(__dirname, '../../.env'), // From packages/core/dist to root (if compiled)
+];
+
+let envLoaded = false;
+for (const envPath of possiblePaths) {
+  const result = dotenv.config({ path: envPath });
+  if (!result.error) {
+    envLoaded = true;
+    break;
+  }
+}
+
+if (!envLoaded) {
+  console.warn('Warning: Could not load .env file from any of the expected locations:', possiblePaths);
+}
 
 /**
  * Main entry point for DAV.ai agent
@@ -42,11 +58,25 @@ async function main(
     ConfigService.validate();
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error('Config', `Error: ${errorMessage}`);
+    const config = ConfigService.getConfig();
+    
+    // Create a helpful error message for logging (with newlines)
+    const logMessage = `${errorMessage}\n\n` +
+      `Please create a .env file in the root directory with:\n` +
+      `  LLM_API_KEY=your_api_key_here\n` +
+      `  LLM_PROVIDER=${config.llmProvider}\n\n` +
+      `Or set the LLM_API_KEY environment variable before running.\n` +
+      `See README.md for more details.`;
+    
+    // Create a cleaner message for API responses (single line)
+    const apiMessage = `${errorMessage} Please create a .env file in the root directory with LLM_API_KEY=your_api_key_here and LLM_PROVIDER=${config.llmProvider}. See README.md for details.`;
+    
+    logger.error('Config', logMessage);
     if (autoCleanup) {
       process.exit(1);
     }
-    throw error;
+    // Throw error with API-friendly message
+    throw new Error(apiMessage);
   }
 
   // Get configuration from ConfigService (single source of truth)
@@ -124,5 +154,6 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith
 }
 
 export { main };
-export { logger, LogLevel } from './utils/logger.js';
+export { logger } from './utils/logger.js';
+export type { LogLevel } from './utils/logger.js';
 

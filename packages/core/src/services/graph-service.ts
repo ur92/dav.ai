@@ -1,3 +1,4 @@
+import neo4j from 'neo4j-driver';
 import { Neo4jTools } from '../tools/neo4j-tools.js';
 import { ConfigService } from './config-service.js';
 
@@ -38,12 +39,17 @@ export class GraphService {
       const driver = (neo4jTools as any).driver;
       const session = driver.session();
 
+      // Ensure limit is an integer (Neo4j requires integer for LIMIT clause)
+      const limitInt = Math.floor(limit) || 100;
+      // Use neo4j.int() to create a proper Neo4j integer type
+      const limitValue = neo4j.int(limitInt);
+
       const queryResult = await session.run(`
         MATCH (n:State)
         OPTIONAL MATCH (n)-[r:TRANSITIONED_BY]->(m:State)
         RETURN n, r, m
         LIMIT $limit
-      `, { limit });
+      `, { limit: limitValue });
 
       const nodes = new Map<string, GraphNode>();
       const edges: GraphEdge[] = [];

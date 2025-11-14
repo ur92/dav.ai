@@ -17,16 +17,23 @@ export class DavAgent {
   private neo4jTools: Neo4jTools;
   private llm: BaseChatModel;
   private previousUrl: string = '';
+  private sessionId: string;
+  private credentials?: { username?: string; password?: string };
+  private loginAttempted: Set<string> = new Set(); // Track URLs where login was attempted
 
   constructor(
     browserTools: BrowserTools,
     neo4jTools: Neo4jTools,
     llmApiKey: string,
     llmProvider: 'openai' | 'anthropic' = 'openai',
-    llmModel: string = 'gpt-4o'
+    llmModel: string = 'gpt-4o',
+    sessionId: string = `session-${Date.now()}`,
+    credentials?: { username?: string; password?: string }
   ) {
     this.browserTools = browserTools;
     this.neo4jTools = neo4jTools;
+    this.sessionId = sessionId;
+    this.credentials = credentials;
     
     // Initialize LLM based on provider
     if (llmProvider === 'anthropic') {
@@ -81,6 +88,16 @@ export class DavAgent {
           reducer: (x: PendingAction | null | undefined, y: PendingAction | null | undefined) => y ?? x ?? null,
           default: () => null,
         },
+        pendingActions: {
+          reducer: (x: PendingAction[] | undefined, y: PendingAction[] | undefined) => {
+            // If new actions are provided, use them; otherwise keep existing
+            if (y && y.length > 0) {
+              return y;
+            }
+            return x ?? [];
+          },
+          default: () => [],
+        },
       },
     });
 
@@ -115,7 +132,14 @@ export class DavAgent {
 
       // Count actionable elements (subtract 1 for the header line)
       const elementCount = observation.domState.split('\n').length - 1;
-      const historyEntry = `[OBSERVE] Visited ${observation.currentUrl}. Found ${elementCount} actionable elements.`;
+      let historyEntry = `[OBSERVE] Visited ${observation.currentUrl}. Found ${elementCount} actionable elements.`;
+      
+      // Check if this is a login screen and we have credentials
+      const isLoginScreen = this.detectLoginScreen(observation.domState);
+      if (isLoginScreen && this.credentials?.username && this.credentials?.password && !this.loginAttempted.has(observation.currentUrl)) {
+        historyEntry += ' [LOGIN DETECTED - Will use credentials]';
+        logger.info('OBSERVE', 'Login screen detected, credentials available');
+      }
       
       // Log the DOM state for debugging
       logger.info('OBSERVE', `DOM State (first 500 chars): ${observation.domState.substring(0, 500)}`);
@@ -136,11 +160,177 @@ export class DavAgent {
   }
 
   /**
+   * Detect if the current page is a login screen
+   */
+  private detectLoginScreen(domState: string): boolean {
+    const lowerDom = domState.toLowerCase();
+    // Look for common login indicators
+    const loginIndicators = [
+      'type="password"',
+      'password',
+      'username',
+      'login',
+      'sign in',
+      'autocomplete="username"',
+      'autocomplete="current-password"',
+      'id="username"',
+      'id="password"',
+      'name="username"',
+      'name="password"',
+    ];
+    
+    // Count how many indicators we find
+    const foundIndicators = loginIndicators.filter(indicator => lowerDom.includes(indicator)).length;
+    
+    // If we find at least 2 indicators (e.g., password field + username field), it's likely a login screen
+    return foundIndicators >= 2;
+  }
+
+  /**
+   * Find the selector for a login field (username or password)
+   */
+  private findLoginField(domState: string, fieldType: 'username' | 'password'): string | null {
+    const lines = domState.split('\n');
+    
+    for (const line of lines) {
+      const lowerLine = line.toLowerCase();
+      // Look for input fields with relevant attributes
+      if (fieldType === 'password') {
+        if (lowerLine.includes('type="password"') || lowerLine.includes('type=password')) {
+          // Extract selector from the line (format: "input[type='password']#password" or similar)
+          const selectorMatch = line.match(/([a-zA-Z0-9_#.\-\[\]="' ]+)/);
+          if (selectorMatch) {
+            // Try to find id, name, or class
+            const idMatch = line.match(/id[=:](['"]?)([^'"\s]+)\1/i);
+            if (idMatch) return `#${idMatch[2]}`;
+            const nameMatch = line.match(/name[=:](['"]?)([^'"\s]+)\1/i);
+            if (nameMatch) return `[name="${nameMatch[2]}"]`;
+            const classMatch = line.match(/class[=:](['"]?)([^'"\s]+)\1/i);
+            if (classMatch) return `.${classMatch[2].split(' ')[0]}`;
+          }
+        }
+      } else {
+        // Username field
+        if ((lowerLine.includes('username') || lowerLine.includes('autocomplete="username"')) && 
+            !lowerLine.includes('password')) {
+          const idMatch = line.match(/id[=:](['"]?)([^'"\s]+)\1/i);
+          if (idMatch) return `#${idMatch[2]}`;
+          const nameMatch = line.match(/name[=:](['"]?)([^'"\s]+)\1/i);
+          if (nameMatch) return `[name="${nameMatch[2]}"]`;
+          const classMatch = line.match(/class[=:](['"]?)([^'"\s]+)\1/i);
+          if (classMatch) return `.${classMatch[2].split(' ')[0]}`;
+        }
+      }
+    }
+    
+    // Fallback: try common selectors
+    if (fieldType === 'password') {
+      return '#password, [name="password"], [type="password"]';
+    } else {
+      return '#username, [name="username"], input[autocomplete="username"]';
+    }
+  }
+
+  /**
+   * Find the submit/login button selector
+   */
+  private findSubmitButton(domState: string): string | null {
+    const lines = domState.split('\n');
+    
+    for (const line of lines) {
+      const lowerLine = line.toLowerCase();
+      // Look for submit buttons, login buttons
+      if ((lowerLine.includes('type="submit"') || 
+           lowerLine.includes('button') && (lowerLine.includes('login') || lowerLine.includes('sign in'))) &&
+          !lowerLine.includes('input')) {
+        const idMatch = line.match(/id[=:](['"]?)([^'"\s]+)\1/i);
+        if (idMatch) return `#${idMatch[2]}`;
+        const classMatch = line.match(/class[=:](['"]?)([^'"\s]+)\1/i);
+        if (classMatch) {
+          const firstClass = classMatch[2].split(' ')[0];
+          return `.${firstClass}`;
+        }
+        const textMatch = line.match(/>([^<]*login[^<]*)</i);
+        if (textMatch) {
+          // Try to find button by text content
+          return 'button:has-text("Login"), button:has-text("Sign in"), [type="submit"]';
+        }
+      }
+    }
+    
+    // Fallback: common selectors
+    return 'button[type="submit"], .login-button, button:has-text("Login"), button:has-text("Sign in")';
+  }
+
+  /**
    * Node 2: decide_action - LLM decides next action or flow end
    */
   private async decideAction(state: DavAgentState): Promise<Partial<DavAgentState>> {
     try {
-      const systemPrompt = `You are an autonomous web exploration agent. Your task is to analyze the current page state and decide the next action.
+      // Check if this is a login screen and we haven't attempted login yet
+      const isLoginScreen = this.detectLoginScreen(state.domState);
+      const shouldAutoLogin = isLoginScreen && 
+                              this.credentials?.username && 
+                              this.credentials?.password && 
+                              !this.loginAttempted.has(state.currentUrl);
+
+      if (shouldAutoLogin) {
+        logger.info('DECIDE', 'Login screen detected with credentials available - will guide LLM to login');
+        // Mark this URL as login attempted to avoid infinite loops
+        this.loginAttempted.add(state.currentUrl);
+      }
+
+      // For login forms, return batch actions directly without LLM call
+      if (shouldAutoLogin) {
+        const usernameSelector = this.findLoginField(state.domState, 'username');
+        const passwordSelector = this.findLoginField(state.domState, 'password');
+        const submitSelector = this.findSubmitButton(state.domState);
+
+        if (usernameSelector && passwordSelector && submitSelector) {
+          logger.info('DECIDE', 'Auto-generating batch login actions', {
+            usernameSelector,
+            passwordSelector,
+            submitSelector,
+          });
+
+          const batchActions: PendingAction[] = [
+            {
+              tool: 'typeText',
+              selector: usernameSelector,
+              text: this.credentials!.username!,
+            },
+            {
+              tool: 'typeText',
+              selector: passwordSelector,
+              text: this.credentials!.password!,
+            },
+            {
+              tool: 'clickElement',
+              selector: submitSelector,
+            },
+          ];
+
+          return {
+            pendingActions: batchActions,
+            explorationStatus: 'CONTINUE',
+            actionHistory: [`[DECIDE] Auto-login: Batch actions prepared (fill username, fill password, click login)`],
+          };
+        }
+      }
+
+      const credentialsHint = this.credentials?.username && this.credentials?.password
+        ? `\n\n🔐 CREDENTIALS AVAILABLE FOR LOGIN:
+If you see a login form (username and password input fields), you can return MULTIPLE actions in an array:
+[
+  {"tool": "typeText", "selector": "#username", "text": "${this.credentials.username}"},
+  {"tool": "typeText", "selector": "#password", "text": "${this.credentials.password}"},
+  {"tool": "clickElement", "selector": "button[type='submit']"}
+]
+
+This allows executing all login steps in one batch, saving tokens and improving efficiency.`
+        : '';
+
+      const systemPrompt = `You are an autonomous web exploration agent. Your task is to analyze the current page state and decide actions.
 
 Available Tools:
 - clickElement: Click on a button, link, or interactive element
@@ -153,14 +343,19 @@ ${state.domState}
 
 Action History:
 ${state.actionHistory.slice(-5).join('\n')}
+${credentialsHint}
 
 Instructions:
 1. Analyze the actionable elements on the page
-2. Decide on the next logical action to explore the application
-3. If you've reached a natural endpoint (form submitted, final page reached, no new actions available), respond with "FLOW_END"
-4. Format your response as JSON: {"tool": "clickElement|typeText|selectOption|navigate", "selector": "...", "text": "...", "value": "...", "url": "..."} OR {"status": "FLOW_END"}
+2. You can return a SINGLE action OR MULTIPLE actions in an array for batch execution
+3. For login forms or multi-step interactions, return multiple actions to execute them efficiently
+4. If you've reached a natural endpoint, respond with "FLOW_END"
+5. Format your response as JSON:
+   - Single action: {"tool": "clickElement|typeText|selectOption|navigate", "selector": "...", "text": "...", "value": "...", "url": "..."}
+   - Multiple actions: {"actions": [{"tool": "...", "selector": "..."}, {"tool": "...", "selector": "..."}]}
+   - End flow: {"status": "FLOW_END"}
 
-Be concise and focus on exploring new paths. Avoid repeating actions you've already taken.`;
+Be concise and focus on exploring new paths. Batch related actions together when possible.`;
 
       const messages = [
         new SystemMessage(systemPrompt),
@@ -179,6 +374,7 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
         decision = {
           explorationStatus: 'FLOW_END',
           pendingAction: null,
+          pendingActions: [],
           actionHistory: ['[DECIDE] Agent decided to end flow.'],
         };
       } else {
@@ -187,24 +383,45 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
         if (jsonMatch) {
           try {
             const parsed = JSON.parse(jsonMatch[0]);
-            const pendingAction: PendingAction = {
-              tool: parsed.tool || 'clickElement',
-              selector: parsed.selector,
-              text: parsed.text,
-              value: parsed.value,
-              url: parsed.url,
-            };
+            
+            // Check if it's a batch of actions
+            if (parsed.actions && Array.isArray(parsed.actions)) {
+              const batchActions: PendingAction[] = parsed.actions.map((action: any) => ({
+                tool: action.tool || 'clickElement',
+                selector: action.selector,
+                text: action.text,
+                value: action.value,
+                url: action.url,
+              }));
 
-            decision = {
-              pendingAction,
-              explorationStatus: 'CONTINUE',
-              actionHistory: [`[DECIDE] Selected action: ${pendingAction.tool} on ${pendingAction.selector || pendingAction.url}`],
-            };
+              decision = {
+                pendingActions: batchActions,
+                explorationStatus: 'CONTINUE',
+                actionHistory: [`[DECIDE] Selected ${batchActions.length} batch actions: ${batchActions.map(a => a.tool).join(', ')}`],
+              };
+            } else {
+              // Single action (backward compatible)
+              const pendingAction: PendingAction = {
+                tool: parsed.tool || 'clickElement',
+                selector: parsed.selector,
+                text: parsed.text,
+                value: parsed.value,
+                url: parsed.url,
+              };
+
+              decision = {
+                pendingAction,
+                pendingActions: [pendingAction], // Convert single to array for batch execution
+                explorationStatus: 'CONTINUE',
+                actionHistory: [`[DECIDE] Selected action: ${pendingAction.tool} on ${pendingAction.selector || pendingAction.url}`],
+              };
+            }
           } catch (e) {
             // Fallback: try to infer action from text
             decision = {
               explorationStatus: 'FLOW_END',
               pendingAction: null,
+              pendingActions: [],
               actionHistory: [`[DECIDE] Could not parse LLM response: ${content}`],
             };
           }
@@ -212,6 +429,7 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
           decision = {
             explorationStatus: 'FLOW_END',
             pendingAction: null,
+            pendingActions: [],
             actionHistory: [`[DECIDE] No valid action found in response: ${content}`],
           };
         }
@@ -228,91 +446,128 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
   }
 
   /**
-   * Node 3: execute_tool - Execute the pending action and generate Cypher queries
+   * Node 3: execute_tool - Execute pending actions in batch and generate Cypher queries
    */
   private async executeTool(state: DavAgentState): Promise<Partial<DavAgentState>> {
-    if (!state.pendingAction) {
+    // Support both old single action and new batch actions
+    const actionsToExecute: PendingAction[] = state.pendingActions.length > 0 
+      ? state.pendingActions 
+      : (state.pendingAction ? [state.pendingAction] : []);
+
+    if (actionsToExecute.length === 0) {
       return {
         explorationStatus: 'FAILURE',
-        actionHistory: ['[EXECUTE] No pending action to execute.'],
+        actionHistory: ['[EXECUTE] No pending actions to execute.'],
       };
     }
 
     try {
-      const action = state.pendingAction;
       const fromUrl = state.currentUrl;
       this.previousUrl = fromUrl;
 
-      logger.info('EXECUTE', `Executing ${action.tool}...`);
+      logger.info('EXECUTE', `Executing ${actionsToExecute.length} action(s) in batch...`);
 
-      // Execute the browser action
-      switch (action.tool) {
-        case 'clickElement':
-          if (!action.selector) {
-            throw new Error('Selector required for clickElement');
-          }
-          await this.browserTools.clickElement(action.selector);
-          break;
+      const executedActions: string[] = [];
+      let finalUrl = fromUrl;
 
-        case 'typeText':
-          if (!action.selector || !action.text) {
-            throw new Error('Selector and text required for typeText');
-          }
-          await this.browserTools.typeText(action.selector, action.text);
-          break;
+      // Execute all actions in sequence
+      for (let i = 0; i < actionsToExecute.length; i++) {
+        const action = actionsToExecute[i];
+        logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Executing ${action.tool}...`);
 
-        case 'selectOption':
-          if (!action.selector || !action.value) {
-            throw new Error('Selector and value required for selectOption');
-          }
-          await this.browserTools.selectOption(action.selector, action.value);
-          break;
+        try {
+          // Execute the browser action
+          switch (action.tool) {
+            case 'clickElement':
+              if (!action.selector) {
+                throw new Error('Selector required for clickElement');
+              }
+              await this.browserTools.clickElement(action.selector);
+              executedActions.push(`${action.tool} on ${action.selector}`);
+              break;
 
-        case 'navigate':
-          if (!action.url) {
-            throw new Error('URL required for navigate');
+            case 'typeText':
+              if (!action.selector || !action.text) {
+                throw new Error('Selector and text required for typeText');
+              }
+              await this.browserTools.typeText(action.selector, action.text);
+              executedActions.push(`${action.tool} on ${action.selector} with text "${action.text.substring(0, 20)}${action.text.length > 20 ? '...' : ''}"`);
+              break;
+
+            case 'selectOption':
+              if (!action.selector || !action.value) {
+                throw new Error('Selector and value required for selectOption');
+              }
+              await this.browserTools.selectOption(action.selector, action.value);
+              executedActions.push(`${action.tool} on ${action.selector} with value "${action.value}"`);
+              break;
+
+            case 'navigate':
+              if (!action.url) {
+                throw new Error('URL required for navigate');
+              }
+              await this.browserTools.navigate(action.url);
+              executedActions.push(`${action.tool} to ${action.url}`);
+              break;
           }
-          await this.browserTools.navigate(action.url);
-          break;
+
+          // Small delay between actions (except for the last one)
+          if (i < actionsToExecute.length - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+        } catch (error) {
+          logger.error('EXECUTE', `Error executing action ${i + 1}`, { 
+            error: error instanceof Error ? error.message : String(error),
+            action: action.tool,
+          });
+          throw error;
+        }
       }
 
-      // Wait a bit for page to update
+      // Wait a bit for page to update after all actions
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      // Get the new URL after action
-      const toUrl = this.browserTools.getCurrentUrl();
+      // Get the final URL after all actions
+      finalUrl = this.browserTools.getCurrentUrl();
 
-      // Generate Cypher queries for State -> Action -> State transition
+      // Generate Cypher queries for State -> Actions -> State transition
       const queries: string[] = [];
 
-      // Observe the current page state (no navigation needed, we're already there)
+      // Observe the current page state after batch execution
       const newObservation = await this.browserTools.observe();
 
       // Merge the "from" state
-      queries.push(Neo4jTools.generateMergeStateQuery(fromUrl, 'temp')); // We'll update fingerprint later
+      queries.push(Neo4jTools.generateMergeStateQuery(fromUrl, 'temp', this.sessionId));
 
       // Merge the "to" state
-      queries.push(Neo4jTools.generateMergeStateQuery(toUrl, newObservation.fingerprint));
+      queries.push(Neo4jTools.generateMergeStateQuery(finalUrl, newObservation.fingerprint, this.sessionId));
 
-      // Create the transition relationship
-      const actionDescription = `${action.tool}${action.selector ? ` on ${action.selector}` : ''}${action.text ? ` with text "${action.text}"` : ''}`;
+      // Create a single transition relationship representing the batch of actions
+      const batchDescription = actionsToExecute.length > 1
+        ? `Batch: ${executedActions.join(' → ')}`
+        : executedActions[0];
+      
       queries.push(
-        Neo4jTools.generateTransitionQuery(fromUrl, toUrl, actionDescription, action.selector)
+        Neo4jTools.generateTransitionQuery(fromUrl, finalUrl, batchDescription, this.sessionId, actionsToExecute[0]?.selector)
       );
 
-      const historyEntry = `[EXECUTE] ${actionDescription}. Transitioned from ${fromUrl} to ${toUrl}.`;
+      const historyEntry = `[EXECUTE] Batch executed: ${executedActions.join(' → ')}. Transitioned from ${fromUrl} to ${finalUrl}.`;
 
       return {
-        currentUrl: toUrl,
+        currentUrl: finalUrl,
         neo4jQueries: queries,
         actionHistory: [historyEntry],
         explorationStatus: 'CONTINUE',
+        pendingActions: [], // Clear executed actions
+        pendingAction: null, // Clear for backward compatibility
       };
     } catch (error) {
-      logger.error('EXECUTE', 'Error', { error: error instanceof Error ? error.message : String(error) });
+      logger.error('EXECUTE', 'Error in batch execution', { error: error instanceof Error ? error.message : String(error) });
       return {
         explorationStatus: 'FAILURE',
         actionHistory: [`[EXECUTE] Error: ${error instanceof Error ? error.message : String(error)}`],
+        pendingActions: [], // Clear on error
+        pendingAction: null,
       };
     }
   }
@@ -363,7 +618,11 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
    * Run the agent starting from a given URL
    */
   async run(startingUrl: string, maxIterations: number = 20): Promise<DavAgentState> {
-    logger.info('AGENT', `[run] Starting run method for URL: ${startingUrl}, maxIterations: ${maxIterations}`);
+    logger.info('AGENT', `[run] Starting run method`, {
+      startingUrl,
+      maxIterations,
+      note: maxIterations === 20 ? 'Using default value (20) - check if value was passed correctly' : 'Using provided value',
+    });
     
     try {
       logger.info('AGENT', '[run] Compiling graph...');
@@ -377,6 +636,7 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
         neo4jQueries: [],
         explorationStatus: 'CONTINUE',
         pendingAction: null,
+        pendingActions: [],
       };
 
       let currentState = initialState;
@@ -403,7 +663,11 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
       }
 
       if (iterations >= maxIterations) {
-        logger.info('AGENT', '[run] Reached maximum iterations limit.');
+        logger.info('AGENT', '[run] Reached maximum iterations limit', {
+          iterations,
+          maxIterations,
+          limitReached: true,
+        });
         currentState.explorationStatus = 'FLOW_END';
       }
 

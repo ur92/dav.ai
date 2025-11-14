@@ -37,36 +37,42 @@ export class Neo4jTools {
   }
 
   /**
-   * Generate Cypher query to merge a State node
+   * Generate Cypher query to merge a State node with sessionId
    */
-  static generateMergeStateQuery(url: string, fingerprint: string): string {
-    // Escape single quotes in URL and fingerprint
+  static generateMergeStateQuery(url: string, fingerprint: string, sessionId: string): string {
+    // Escape single quotes in URL, fingerprint, and sessionId
     const safeUrl = url.replace(/'/g, "\\'");
     const safeFingerprint = fingerprint.replace(/'/g, "\\'");
+    const safeSessionId = sessionId.replace(/'/g, "\\'");
     
-    return `MERGE (s:State {url: '${safeUrl}', fingerprint: '${safeFingerprint}'})
-            ON CREATE SET s.createdAt = datetime()
-            ON MATCH SET s.lastVisited = datetime()
+    return `MERGE (s:State {url: '${safeUrl}', sessionId: '${safeSessionId}'})
+            ON CREATE SET s.fingerprint = '${safeFingerprint}',
+                          s.createdAt = datetime(),
+                          s.sessionId = '${safeSessionId}'
+            ON MATCH SET s.lastVisited = datetime(),
+                         s.fingerprint = '${safeFingerprint}'
             RETURN s`;
   }
 
   /**
-   * Generate Cypher query to create a TRANSITIONED_BY relationship
+   * Generate Cypher query to create a TRANSITIONED_BY relationship with sessionId
    */
   static generateTransitionQuery(
     fromUrl: string,
     toUrl: string,
     action: string,
+    sessionId: string,
     selector?: string
   ): string {
     const safeFromUrl = fromUrl.replace(/'/g, "\\'");
     const safeToUrl = toUrl.replace(/'/g, "\\'");
     const safeAction = action.replace(/'/g, "\\'");
+    const safeSessionId = sessionId.replace(/'/g, "\\'");
     const safeSelector = selector ? selector.replace(/'/g, "\\'") : '';
 
-    let query = `MATCH (a:State {url: '${safeFromUrl}'})
-                 MATCH (b:State {url: '${safeToUrl}'})
-                 CREATE (a)-[r:TRANSITIONED_BY {action: '${safeAction}'`;
+    let query = `MATCH (a:State {url: '${safeFromUrl}', sessionId: '${safeSessionId}'})
+                 MATCH (b:State {url: '${safeToUrl}', sessionId: '${safeSessionId}'})
+                 CREATE (a)-[r:TRANSITIONED_BY {action: '${safeAction}', sessionId: '${safeSessionId}'`;
 
     if (safeSelector) {
       query += `, selector: '${safeSelector}'`;

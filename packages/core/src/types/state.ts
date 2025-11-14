@@ -7,7 +7,8 @@ export interface DavAgentState {
   actionHistory: string[];
   neo4jQueries: string[];
   explorationStatus: 'CONTINUE' | 'FLOW_END' | 'FAILURE';
-  pendingAction: PendingAction | null;
+  pendingAction: PendingAction | null; // Deprecated: use pendingActions instead
+  pendingActions: PendingAction[]; // Array of actions to execute in batch
 }
 
 /**

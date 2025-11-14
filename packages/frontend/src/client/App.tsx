@@ -75,6 +75,22 @@ const edgeTypes: EdgeTypes = {
   selfloop: SelfLoopEdge,
 };
 
+interface UserStory {
+  title: string;
+  description: string;
+  steps: string[];
+  flow: Array<{
+    from: string;
+    to: string;
+    action: string;
+  }>;
+}
+
+interface UserStoriesResult {
+  stories: UserStory[];
+  summary: string;
+}
+
 interface Session {
   sessionId: string;
   status: string;
@@ -85,6 +101,7 @@ interface Session {
     explorationStatus?: string;
   };
   decisions?: string[]; // Agent decisions for display
+  userStories?: UserStoriesResult; // Compiled user stories
 }
 
 interface GraphData {
@@ -105,6 +122,7 @@ function App() {
   const [agentActivity, setAgentActivity] = useState<string[]>([]);
   const [flowNodes, setFlowNodes] = useState<Node[]>([]);
   const [flowEdges, setFlowEdges] = useState<Edge[]>([]);
+  const [userStories, setUserStories] = useState<UserStoriesResult | null>(null);
 
   // Convert graph data to ReactFlow format with better layout
   useEffect(() => {
@@ -172,8 +190,8 @@ function App() {
 
       // Create edges with better handling of self-loops
       // Group self-loops and limit display to avoid visual clutter
-      const selfLoopsByNode = new Map<string, Array<{ edge: GraphEdge; index: number }>>();
-      const regularEdges: Array<{ edge: GraphEdge; index: number }> = [];
+      const selfLoopsByNode = new Map<string, Array<{ edge: GraphData['edges'][0]; index: number }>>();
+      const regularEdges: Array<{ edge: GraphData['edges'][0]; index: number }> = [];
       
       graphData.edges.forEach((edge, index) => {
         if (edge.source === edge.target) {
@@ -359,6 +377,8 @@ function App() {
 
             // Load graph for the selected session immediately
             loadGraph(currentSession);
+            // Clear user stories when switching sessions
+            setUserStories(null);
 
             let lastDecisionCount = 0;
 
@@ -375,6 +395,11 @@ function App() {
                       addActivity(decision);
                     });
                     lastDecisionCount = session.decisions.length;
+                  }
+
+                  // Update user stories if available
+                  if (session.userStories) {
+                    setUserStories(session.userStories);
                   }
 
                   // Update sessions list
@@ -394,6 +419,10 @@ function App() {
                       session.decisions.slice(lastDecisionCount).forEach((decision) => {
                         addActivity(decision);
                       });
+                    }
+                    // Load user stories when completed
+                    if (session.userStories) {
+                      setUserStories(session.userStories);
                     }
                   }
                 }
@@ -633,9 +662,24 @@ function App() {
                 <div 
                   key={session.sessionId} 
                   className={`session-item ${currentSession === session.sessionId ? 'active' : ''}`}
-                  onClick={() => {
+                  onClick={async () => {
                     setCurrentSession(session.sessionId);
                     loadGraph(session.sessionId);
+                    // Load user stories for this session
+                    try {
+                      const response = await fetch(`http://localhost:3001/api/session/${session.sessionId}`);
+                      if (response.ok) {
+                        const sessionData: Session = await response.json();
+                        if (sessionData.userStories) {
+                          setUserStories(sessionData.userStories);
+                        } else {
+                          setUserStories(null);
+                        }
+                      }
+                    } catch (error) {
+                      console.error('Error loading user stories:', error);
+                      setUserStories(null);
+                    }
                   }}
                   style={{ cursor: 'pointer' }}
                 >
@@ -736,6 +780,143 @@ function App() {
             <div className="empty-state">
               <p>No visualization data available for this session.</p>
               <p>The session may still be running or hasn't generated any graph data yet.</p>
+            </div>
+          )}
+        </section>
+
+        {/* User Stories Panel */}
+        <section className="user-stories-panel">
+          <h2>📖 Compiled User Stories</h2>
+          <div className="narrative-box">
+            <p><strong>User Stories:</strong> AI-generated user stories compiled from the exploration data, describing complete workflows and user interactions.</p>
+          </div>
+          {!currentSession ? (
+            <div className="empty-state">
+              <p>No session selected.</p>
+              <p>Select a completed session to view compiled user stories.</p>
+            </div>
+          ) : userStories ? (
+            <div className="user-stories-content">
+              {userStories.summary && (
+                <div className="user-stories-summary" style={{
+                  marginBottom: '1.5rem',
+                  padding: '1rem',
+                  background: '#f0f4ff',
+                  border: '1px solid #667eea',
+                  borderRadius: '8px',
+                }}>
+                  <h3 style={{ marginTop: 0, marginBottom: '0.5rem', color: '#667eea' }}>📋 Summary</h3>
+                  <p style={{ margin: 0, color: '#333' }}>{userStories.summary}</p>
+                </div>
+              )}
+              {userStories.stories && userStories.stories.length > 0 ? (
+                <div className="user-stories-list">
+                  {userStories.stories.map((story, index) => (
+                    <div key={index} className="user-story-card" style={{
+                      marginBottom: '1.5rem',
+                      padding: '1.5rem',
+                      background: '#fff',
+                      border: '2px solid #e0e0e0',
+                      borderRadius: '8px',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                    }}>
+                      <h3 style={{ 
+                        marginTop: 0, 
+                        marginBottom: '0.75rem', 
+                        color: '#333',
+                        fontSize: '1.25rem',
+                        borderBottom: '2px solid #667eea',
+                        paddingBottom: '0.5rem',
+                      }}>
+                        {index + 1}. {story.title}
+                      </h3>
+                      {story.description && (
+                        <p style={{ 
+                          marginBottom: '1rem', 
+                          color: '#666',
+                          fontSize: '0.95rem',
+                          lineHeight: '1.6',
+                        }}>
+                          {story.description}
+                        </p>
+                      )}
+                      {story.steps && story.steps.length > 0 && (
+                        <div style={{ marginBottom: '1rem' }}>
+                          <h4 style={{ 
+                            marginBottom: '0.5rem', 
+                            color: '#555',
+                            fontSize: '1rem',
+                            fontWeight: '600',
+                          }}>
+                            Steps:
+                          </h4>
+                          <ol style={{ 
+                            margin: 0, 
+                            paddingLeft: '1.5rem',
+                            color: '#444',
+                          }}>
+                            {story.steps.map((step, stepIndex) => (
+                              <li key={stepIndex} style={{ marginBottom: '0.5rem', lineHeight: '1.5' }}>
+                                {step}
+                              </li>
+                            ))}
+                          </ol>
+                        </div>
+                      )}
+                      {story.flow && story.flow.length > 0 && (
+                        <div>
+                          <h4 style={{ 
+                            marginBottom: '0.5rem', 
+                            color: '#555',
+                            fontSize: '1rem',
+                            fontWeight: '600',
+                          }}>
+                            Flow:
+                          </h4>
+                          <div style={{
+                            background: '#f9f9f9',
+                            padding: '0.75rem',
+                            borderRadius: '6px',
+                            fontSize: '0.9rem',
+                          }}>
+                            {story.flow.map((flowItem, flowIndex) => (
+                              <div key={flowIndex} style={{ 
+                                marginBottom: '0.5rem',
+                                padding: '0.5rem',
+                                background: '#fff',
+                                borderRadius: '4px',
+                                border: '1px solid #e0e0e0',
+                              }}>
+                                <span style={{ color: '#667eea', fontWeight: '600' }}>
+                                  {flowItem.from}
+                                </span>
+                                {' → '}
+                                <span style={{ color: '#f59e0b', fontWeight: '600' }}>
+                                  {flowItem.action}
+                                </span>
+                                {' → '}
+                                <span style={{ color: '#667eea', fontWeight: '600' }}>
+                                  {flowItem.to}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <p>No user stories generated yet.</p>
+                  <p>User stories are generated automatically when a session completes.</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="empty-state">
+              <p>No user stories available for this session.</p>
+              <p>User stories are generated automatically when the exploration completes. If the session is still running, wait for it to complete.</p>
             </div>
           )}
         </section>

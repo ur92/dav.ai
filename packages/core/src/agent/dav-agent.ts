@@ -138,12 +138,17 @@ export class DavAgent {
     try {
       const url = state.currentUrl;
       logger.info('OBSERVE', `Navigating to: ${url}`);
+      this.emitDecision(`🔍 Analyzing page: ${url}`);
 
       const observation = await this.browserTools.observe(url);
+      this.emitDecision(`✅ Page loaded successfully`);
 
       // Count actionable elements (subtract 1 for the header line)
       const elementCount = observation.domState.split('\n').length - 1;
       let historyEntry = `[OBSERVE] Visited ${observation.currentUrl}. Found ${elementCount} actionable elements.`;
+      
+      // Emit detailed analysis
+      this.emitDecision(`📊 Page analysis: Found ${elementCount} actionable elements`);
       
       // Check for cycle: if we've seen this fingerprint before, we've completed a cycle
       const visitedFingerprints = state.visitedFingerprints || [];
@@ -152,7 +157,8 @@ export class DavAgent {
       if (isCycle) {
         logger.info('OBSERVE', `Cycle detected! Fingerprint ${observation.fingerprint} was visited before. Ending exploration gracefully.`);
         historyEntry += ' [CYCLE DETECTED - Exploration complete]';
-        this.emitDecision('🔄 Cycle detected - Exploration complete');
+        this.emitDecision(`🔄 Cycle detected - This page was visited before (fingerprint: ${observation.fingerprint.substring(0, 8)}...)`);
+        this.emitDecision('🏁 Exploration complete');
         return {
           currentUrl: observation.currentUrl,
           domState: observation.domState,
@@ -167,11 +173,25 @@ export class DavAgent {
       if (isLoginScreen && this.credentials?.username && this.credentials?.password && !this.loginAttempted.has(observation.currentUrl)) {
         historyEntry += ' [LOGIN DETECTED - Will use credentials]';
         logger.info('OBSERVE', 'Login screen detected, credentials available');
+        this.emitDecision('🔐 Login form detected - Credentials available for auto-login');
+      } else if (isLoginScreen) {
+        this.emitDecision('🔐 Login form detected');
+      }
+      
+      // Extract and log key page information
+      const domLines = observation.domState.split('\n');
+      const buttons = domLines.filter(line => line.toLowerCase().includes('button')).length;
+      const inputs = domLines.filter(line => line.toLowerCase().includes('input')).length;
+      const links = domLines.filter(line => line.toLowerCase().includes('a href')).length;
+      
+      if (buttons > 0 || inputs > 0 || links > 0) {
+        this.emitDecision(`📋 Page elements: ${buttons} buttons, ${inputs} inputs, ${links} links`);
       }
       
       // Log the DOM state for debugging
       logger.info('OBSERVE', `DOM State (first 500 chars): ${observation.domState.substring(0, 500)}`);
       logger.info('OBSERVE', `Current URL: ${observation.currentUrl}, Fingerprint: ${observation.fingerprint}`);
+      this.emitDecision(`🔗 Current URL: ${observation.currentUrl}`);
 
       return {
         currentUrl: observation.currentUrl,
@@ -181,6 +201,7 @@ export class DavAgent {
       };
     } catch (error) {
       logger.error('OBSERVE', 'Error', { error: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined });
+      this.emitDecision(`❌ Error analyzing page: ${error instanceof Error ? error.message : String(error)}`);
       return {
         explorationStatus: 'FAILURE',
         actionHistory: [`[OBSERVE] Error: ${error instanceof Error ? error.message : String(error)}`],
@@ -311,6 +332,7 @@ export class DavAgent {
 
       // For login forms, return batch actions directly without LLM call
       if (shouldAutoLogin) {
+        this.emitDecision('🤖 Decision: Auto-login detected - Preparing login sequence');
         const usernameSelector = this.findLoginField(state.domState, 'username');
         const passwordSelector = this.findLoginField(state.domState, 'password');
         const submitSelector = this.findSubmitButton(state.domState);
@@ -321,6 +343,9 @@ export class DavAgent {
             passwordSelector,
             submitSelector,
           });
+
+          this.emitDecision(`🔍 Found login fields: username (${usernameSelector}), password (${passwordSelector})`);
+          this.emitDecision(`🔍 Found submit button: ${submitSelector}`);
 
           const batchActions: PendingAction[] = [
             {
@@ -345,7 +370,11 @@ export class DavAgent {
             explorationStatus: 'CONTINUE',
             actionHistory: [`[DECIDE] Auto-login: Batch actions prepared (fill username, fill password, click login)`],
           };
+        } else {
+          this.emitDecision('⚠️ Auto-login: Could not find all required login fields, falling back to LLM');
         }
+      } else {
+        this.emitDecision('🤖 Decision: Analyzing page with LLM to determine next action...');
       }
 
       const credentialsHint = this.credentials?.username && this.credentials?.password
@@ -392,10 +421,12 @@ Be concise and focus on exploring new paths. Batch related actions together when
         new HumanMessage('What is the next action I should take?'),
       ];
 
+      this.emitDecision('💭 Querying LLM for decision...');
       const response = await this.llm.invoke(messages);
       const content = response.content as string;
 
       logger.info('DECIDE', `LLM Response: ${content}`);
+      this.emitDecision(`💬 LLM response received (${content.length} characters)`);
 
       // Parse LLM response
       let decision: Partial<DavAgentState>;
@@ -520,6 +551,7 @@ Be concise and focus on exploring new paths. Batch related actions together when
       this.previousUrl = fromUrl;
 
       logger.info('EXECUTE', `Executing ${actionsToExecute.length} action(s) in batch...`);
+      this.emitDecision(`⚙️ Executing ${actionsToExecute.length} action(s) in batch...`);
 
       const executedActions: string[] = [];
       let finalUrl = fromUrl;
@@ -536,32 +568,41 @@ Be concise and focus on exploring new paths. Batch related actions together when
               if (!action.selector) {
                 throw new Error('Selector required for clickElement');
               }
+              this.emitDecision(`🖱️ [${i + 1}/${actionsToExecute.length}] Clicking: ${action.selector}`);
               await this.browserTools.clickElement(action.selector);
               executedActions.push(`${action.tool} on ${action.selector}`);
+              this.emitDecision(`✅ Clicked successfully`);
               break;
 
             case 'typeText':
               if (!action.selector || !action.text) {
                 throw new Error('Selector and text required for typeText');
               }
+              const textPreview = action.text.length > 30 ? action.text.substring(0, 30) + '...' : action.text;
+              this.emitDecision(`⌨️ [${i + 1}/${actionsToExecute.length}] Typing into ${action.selector}: "${textPreview}"`);
               await this.browserTools.typeText(action.selector, action.text);
               executedActions.push(`${action.tool} on ${action.selector} with text "${action.text.substring(0, 20)}${action.text.length > 20 ? '...' : ''}"`);
+              this.emitDecision(`✅ Text entered successfully`);
               break;
 
             case 'selectOption':
               if (!action.selector || !action.value) {
                 throw new Error('Selector and value required for selectOption');
               }
+              this.emitDecision(`📋 [${i + 1}/${actionsToExecute.length}] Selecting "${action.value}" from ${action.selector}`);
               await this.browserTools.selectOption(action.selector, action.value);
               executedActions.push(`${action.tool} on ${action.selector} with value "${action.value}"`);
+              this.emitDecision(`✅ Option selected successfully`);
               break;
 
             case 'navigate':
               if (!action.url) {
                 throw new Error('URL required for navigate');
               }
+              this.emitDecision(`🧭 [${i + 1}/${actionsToExecute.length}] Navigating to: ${action.url}`);
               await this.browserTools.navigate(action.url);
               executedActions.push(`${action.tool} to ${action.url}`);
+              this.emitDecision(`✅ Navigation successful`);
               break;
           }
 
@@ -574,21 +615,26 @@ Be concise and focus on exploring new paths. Batch related actions together when
             error: error instanceof Error ? error.message : String(error),
             action: action.tool,
           });
+          this.emitDecision(`❌ Error executing action ${i + 1}: ${error instanceof Error ? error.message : String(error)}`);
           throw error;
         }
       }
 
       // Wait a bit for page to update after all actions
+      this.emitDecision('⏳ Waiting for page to update...');
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // Get the final URL after all actions
       finalUrl = this.browserTools.getCurrentUrl();
+      this.emitDecision(`🔗 Final URL after actions: ${finalUrl}`);
 
       // Generate Cypher queries for State -> Actions -> State transition
       const queries: string[] = [];
 
       // Observe the current page state after batch execution
+      this.emitDecision('🔍 Observing page state after actions...');
       const newObservation = await this.browserTools.observe();
+      this.emitDecision(`📊 Page state captured (fingerprint: ${newObservation.fingerprint.substring(0, 8)}...)`);
 
       // Merge the "from" state
       queries.push(Neo4jTools.generateMergeStateQuery(fromUrl, 'temp', this.sessionId));
@@ -605,6 +651,7 @@ Be concise and focus on exploring new paths. Batch related actions together when
         Neo4jTools.generateTransitionQuery(fromUrl, finalUrl, batchDescription, this.sessionId, actionsToExecute[0]?.selector)
       );
 
+      this.emitDecision(`💾 Prepared ${queries.length} Neo4j queries for state transition`);
       const historyEntry = `[EXECUTE] Batch executed: ${executedActions.join(' → ')}. Transitioned from ${fromUrl} to ${finalUrl}.`;
 
       return {
@@ -636,7 +683,9 @@ Be concise and focus on exploring new paths. Batch related actions together when
 
     try {
       logger.info('PERSIST', `Executing ${state.neo4jQueries.length} Neo4j queries...`);
+      this.emitDecision(`💾 Persisting ${state.neo4jQueries.length} state transition(s) to graph database...`);
       await this.neo4jTools.executeQueries(state.neo4jQueries);
+      this.emitDecision(`✅ Successfully persisted to graph database`);
 
       return {
         neo4jQueries: [], // Clear queries after persistence
@@ -644,6 +693,7 @@ Be concise and focus on exploring new paths. Batch related actions together when
       };
     } catch (error) {
       logger.error('PERSIST', 'Error', { error: error instanceof Error ? error.message : String(error) });
+      this.emitDecision(`❌ Error persisting to graph database: ${error instanceof Error ? error.message : String(error)}`);
       return {
         actionHistory: [`[PERSIST] Error: ${error instanceof Error ? error.message : String(error)}`],
         // Don't fail the flow on persistence errors, just log them
@@ -714,10 +764,13 @@ Be concise and focus on exploring new paths. Batch related actions together when
       let iterations = 0;
 
       logger.info('AGENT', `[run] Starting exploration from: ${startingUrl}`);
+      this.emitDecision(`🚀 Starting exploration from: ${startingUrl}`);
+      this.emitDecision(`📊 Maximum iterations: ${maxIterations}`);
 
       while (currentState.explorationStatus === 'CONTINUE' && iterations < maxIterations) {
         try {
           logger.info('AGENT', `[run] Invoking graph for iteration ${iterations + 1}...`);
+          this.emitDecision(`\n━━━ Iteration ${iterations + 1}/${maxIterations} ━━━`);
           // Set recursion limit to allow for multiple graph steps per iteration
           // Each iteration can involve: observe -> decide -> execute -> persist (4 steps)
           // Use a high recursion limit to prevent premature termination
@@ -728,6 +781,7 @@ Be concise and focus on exploring new paths. Batch related actions together when
           iterations++;
 
           logger.info('AGENT', `[run] Iteration ${iterations}/${maxIterations} - Status: ${currentState.explorationStatus}`);
+          this.emitDecision(`✓ Iteration ${iterations} complete - Status: ${currentState.explorationStatus}`);
         } catch (error) {
           // Check if it's a recursion limit error - if so, treat as graceful completion
           if (error instanceof Error && error.message.includes('Recursion limit')) {
@@ -754,10 +808,16 @@ Be concise and focus on exploring new paths. Batch related actions together when
           maxIterations,
           limitReached: true,
         });
+        this.emitDecision(`⏱️ Reached maximum iterations limit (${maxIterations})`);
         currentState.explorationStatus = 'FLOW_END';
       }
 
       logger.info('AGENT', `[run] Exploration finished. Final status: ${currentState.explorationStatus}, Iterations: ${iterations}`);
+      this.emitDecision(`\n━━━ Exploration Complete ━━━`);
+      this.emitDecision(`📊 Final status: ${currentState.explorationStatus}`);
+      this.emitDecision(`📈 Total iterations: ${iterations}`);
+      this.emitDecision(`🔗 Final URL: ${currentState.currentUrl}`);
+      this.emitDecision(`📝 Total actions: ${currentState.actionHistory.length}`);
       return currentState;
     } catch (error) {
       logger.error('AGENT', '[run] Fatal error in run method', {

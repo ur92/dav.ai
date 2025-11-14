@@ -11,6 +11,7 @@ import ReactFlow, {
   EdgeProps,
   getSmoothStepPath,
 } from 'reactflow';
+import dagre from 'dagre';
 import 'reactflow/dist/style.css';
 import './App.css';
 
@@ -29,9 +30,9 @@ function SelfLoopEdge({
   labelStyle,
   data,
 }: EdgeProps) {
-  // Create a curved path for self-loops with offset for multiple loops
-  const offset = (data as any)?.offset || 0;
-  const radius = 50 + offset;
+  // Create a curved path for self-loops
+  const offset = (data as any)?.offset || 60;
+  const radius = offset;
   
   const [edgePath, labelX, labelY] = useMemo(() => {
     // Create a semi-circular loop above the node
@@ -41,10 +42,10 @@ function SelfLoopEdge({
     
     // Use quadratic bezier for smooth loop
     const path = `M ${sourceX} ${sourceY} 
-                  Q ${sourceX + radius * 0.5} ${sourceY - radius * 0.3} ${sourceX} ${controlPointY}
-                  Q ${sourceX - radius * 0.5} ${sourceY - radius * 0.3} ${endX} ${endY}`;
+                  Q ${sourceX + radius * 0.6} ${sourceY - radius * 0.4} ${sourceX} ${controlPointY}
+                  Q ${sourceX - radius * 0.6} ${sourceY - radius * 0.4} ${endX} ${endY}`;
     
-    return [path, sourceX, controlPointY - 10];
+    return [path, sourceX, controlPointY - 15];
   }, [sourceX, sourceY, radius]);
 
   return (
@@ -56,16 +57,30 @@ function SelfLoopEdge({
         style={style}
       />
       {label && (
-        <text
-          x={labelX}
-          y={labelY}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          style={labelStyle}
-          className="react-flow__edge-text"
-        >
-          {label}
-        </text>
+        <g>
+          {typeof label === 'string' && (
+            <rect
+              x={labelX - (label.length * 3.5)}
+              y={labelY - 8}
+              width={label.length * 7}
+              height={16}
+              rx={4}
+              fill="rgba(255, 255, 255, 0.95)"
+              stroke={style.stroke || '#f59e0b'}
+              strokeWidth={1}
+            />
+          )}
+          <text
+            x={labelX}
+            y={labelY}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            style={labelStyle}
+            className="react-flow__edge-text"
+          >
+            {label}
+          </text>
+        </g>
       )}
     </>
   );
@@ -124,204 +139,177 @@ function App() {
   const [flowEdges, setFlowEdges] = useState<Edge[]>([]);
   const [userStories, setUserStories] = useState<UserStoriesResult | null>(null);
 
-  // Convert graph data to ReactFlow format with hierarchical layout
+  // Convert graph data to ReactFlow format with Dagre hierarchical layout
   useEffect(() => {
     if (graphData && graphData.nodes.length > 0) {
-      const nodePositions = new Map<string, { x: number; y: number }>();
+      // Separate self-loops from regular edges
+      const selfLoopsByNode = new Map<string, Array<GraphData['edges'][0]>>();
+      const regularEdges: Array<GraphData['edges'][0]> = [];
       
-      // Build adjacency lists for topological sorting
-      const inDegree = new Map<string, number>();
-      const outEdges = new Map<string, string[]>();
-      
-      // Initialize all nodes
-      graphData.nodes.forEach(node => {
-        inDegree.set(node.id, 0);
-        outEdges.set(node.id, []);
-      });
-      
-      // Build graph structure
       graphData.edges.forEach(edge => {
-        if (edge.source !== edge.target) { // Skip self-loops for layout
-          const currentIn = inDegree.get(edge.target) || 0;
-          inDegree.set(edge.target, currentIn + 1);
-          
-          const currentOut = outEdges.get(edge.source) || [];
-          currentOut.push(edge.target);
-          outEdges.set(edge.source, currentOut);
-        }
-      });
-      
-      // Topological sort for hierarchical layout
-      const layers: string[][] = [];
-      const processed = new Set<string>();
-      const nodeWidth = 280;
-      const nodeHeight = 140;
-      const spacingX = nodeWidth + 80;
-      const spacingY = nodeHeight + 60;
-      
-      // Find root nodes (nodes with no incoming edges)
-      let currentLayer: string[] = [];
-      inDegree.forEach((degree, nodeId) => {
-        if (degree === 0) {
-          currentLayer.push(nodeId);
-        }
-      });
-      
-      // If no root nodes (circular graph), start with first node
-      if (currentLayer.length === 0 && graphData.nodes.length > 0) {
-        currentLayer = [graphData.nodes[0].id];
-      }
-      
-      // Build layers using BFS-like approach
-      while (currentLayer.length > 0) {
-        layers.push([...currentLayer]);
-        currentLayer.forEach(nodeId => processed.add(nodeId));
-        
-        const nextLayer: string[] = [];
-        currentLayer.forEach(nodeId => {
-          const children = outEdges.get(nodeId) || [];
-          children.forEach(childId => {
-            if (!processed.has(childId)) {
-              const remainingIn = (inDegree.get(childId) || 0) - 1;
-              inDegree.set(childId, remainingIn);
-              if (remainingIn === 0 && !nextLayer.includes(childId)) {
-                nextLayer.push(childId);
-              }
-            }
-          });
-        });
-        
-        currentLayer = nextLayer;
-      }
-      
-      // Add any remaining nodes (for circular dependencies)
-      graphData.nodes.forEach(node => {
-        if (!processed.has(node.id)) {
-          if (layers.length === 0) {
-            layers.push([]);
-          }
-          layers[layers.length - 1].push(node.id);
-        }
-      });
-      
-      // Position nodes in layers
-      layers.forEach((layer, layerIndex) => {
-        const layerWidth = layer.length * spacingX;
-        const startX = Math.max(100, (1400 - layerWidth) / 2); // Center the layer
-        
-        layer.forEach((nodeId, nodeIndex) => {
-          nodePositions.set(nodeId, {
-            x: startX + nodeIndex * spacingX,
-            y: 100 + layerIndex * spacingY,
-          });
-        });
-      });
-
-      // Count connections per node to identify hubs
-      const connectionCounts = new Map<string, number>();
-      graphData.edges.forEach((edge) => {
-        connectionCounts.set(edge.source, (connectionCounts.get(edge.source) || 0) + 1);
-        connectionCounts.set(edge.target, (connectionCounts.get(edge.target) || 0) + 1);
-      });
-
-      const nodes: Node[] = graphData.nodes.map((node) => {
-        const position = nodePositions.get(node.id) || { x: 100, y: 100 };
-        const connections = connectionCounts.get(node.id) || 0;
-        const isSelfLoop = graphData.edges.some(e => e.source === node.id && e.target === node.id);
-        
-        return {
-          id: node.id,
-          type: 'default',
-          data: {
-            label: (
-              <div>
-                <div style={{ fontWeight: 'bold', marginBottom: '4px', wordBreak: 'break-word' }}>
-                  {node.url.length > 50 ? `${node.url.substring(0, 50)}...` : node.url}
-                </div>
-                <div style={{ fontSize: '0.75rem', color: '#666' }}>
-                  {connections} connection{connections !== 1 ? 's' : ''}
-                  {isSelfLoop && ' • Self-loops'}
-                </div>
-              </div>
-            ),
-          },
-          position,
-          style: {
-            background: '#fff',
-            border: isSelfLoop ? '3px solid #f59e0b' : '2px solid #667eea',
-            borderRadius: '8px',
-            padding: '10px',
-            minWidth: '220px',
-            maxWidth: '280px',
-          },
-        };
-      });
-
-      // Create edges with better handling of self-loops
-      // Group self-loops and limit display to avoid visual clutter
-      const selfLoopsByNode = new Map<string, Array<{ edge: GraphData['edges'][0]; index: number }>>();
-      const regularEdges: Array<{ edge: GraphData['edges'][0]; index: number }> = [];
-      
-      graphData.edges.forEach((edge, index) => {
         if (edge.source === edge.target) {
           if (!selfLoopsByNode.has(edge.source)) {
             selfLoopsByNode.set(edge.source, []);
           }
-          selfLoopsByNode.get(edge.source)!.push({ edge, index });
+          selfLoopsByNode.get(edge.source)!.push(edge);
         } else {
-          regularEdges.push({ edge, index });
+          regularEdges.push(edge);
         }
       });
 
-      const edges: Edge[] = [];
-      
-      // Add regular edges (non-self-loops)
-      regularEdges.forEach(({ edge, index }) => {
-        const label = edge.label || 'action';
-        const shortLabel = label.length > 30 ? `${label.substring(0, 30)}...` : label;
-        
-        edges.push({
-          id: `e${edge.source}-${edge.target}-${index}`,
-          source: edge.source,
-          target: edge.target,
-          label: shortLabel,
-          type: 'smoothstep',
-          animated: true,
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            color: '#667eea',
-          },
-          style: {
-            stroke: '#667eea',
-            strokeWidth: 2,
-          },
-          labelStyle: {
-            fill: '#667eea',
-            fontWeight: 600,
-            fontSize: '11px',
-            background: 'rgba(255, 255, 255, 0.8)',
-            padding: '2px 6px',
-            borderRadius: '4px',
-          },
+      // Create Dagre graph for layout
+      const g = new dagre.graphlib.Graph();
+      g.setDefaultEdgeLabel(() => ({}));
+      g.setGraph({ 
+        rankdir: 'TB', // Top to bottom
+        nodesep: 100,  // Horizontal spacing between nodes
+        ranksep: 150,  // Vertical spacing between ranks
+        marginx: 50,
+        marginy: 50,
+      });
+
+      // Add nodes to Dagre graph
+      graphData.nodes.forEach(node => {
+        g.setNode(node.id, { 
+          width: 250, 
+          height: 100 
         });
       });
 
-      // Add self-loops (limit to first 10 per node to avoid clutter)
-      selfLoopsByNode.forEach((loops, nodeId) => {
-        const displayLoops = loops.slice(0, 10); // Show max 10 self-loops per node
-        const remainingCount = loops.length - displayLoops.length;
+      // Add only regular edges to Dagre (no self-loops)
+      regularEdges.forEach(edge => {
+        g.setEdge(edge.source, edge.target);
+      });
+
+      // Calculate layout
+      dagre.layout(g);
+
+      // Count connections for node styling
+      const connectionCounts = new Map<string, { in: number; out: number; self: number }>();
+      graphData.nodes.forEach(node => {
+        connectionCounts.set(node.id, { in: 0, out: 0, self: 0 });
+      });
+      
+      graphData.edges.forEach(edge => {
+        if (edge.source === edge.target) {
+          const counts = connectionCounts.get(edge.source)!;
+          counts.self++;
+        } else {
+          const sourceCounts = connectionCounts.get(edge.source)!;
+          sourceCounts.out++;
+          const targetCounts = connectionCounts.get(edge.target)!;
+          targetCounts.in++;
+        }
+      });
+
+      // Create ReactFlow nodes with Dagre positions
+      const nodes: Node[] = graphData.nodes.map(node => {
+        const dagreNode = g.node(node.id);
+        const counts = connectionCounts.get(node.id)!;
+        const totalConnections = counts.in + counts.out;
+        const hasSelfLoops = counts.self > 0;
         
-        displayLoops.forEach(({ edge, index }, loopIndex) => {
-          const label = edge.label || 'action';
-          const shortLabel = label.length > 25 ? `${label.substring(0, 25)}...` : label;
-          
+        // Format URL for display
+        const urlParts = node.url.split('/');
+        const displayUrl = urlParts.length > 1 
+          ? urlParts[urlParts.length - 1] || urlParts[urlParts.length - 2] || node.url
+          : node.url;
+        const shortUrl = displayUrl.length > 40 ? `${displayUrl.substring(0, 40)}...` : displayUrl;
+        
+        return {
+          id: node.id,
+          type: 'default',
+          position: { x: dagreNode.x - 125, y: dagreNode.y - 50 }, // Center the node
+          data: {
+            label: (
+              <div style={{ textAlign: 'center', width: '100%' }}>
+                <div style={{ 
+                  fontWeight: 'bold', 
+                  marginBottom: '6px', 
+                  wordBreak: 'break-word',
+                  fontSize: '0.9rem',
+                  color: '#333',
+                }}>
+                  {shortUrl}
+                </div>
+                <div style={{ 
+                  fontSize: '0.7rem', 
+                  color: '#666',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  flexWrap: 'wrap',
+                }}>
+                  <span>↗ {counts.out}</span>
+                  <span>↙ {counts.in}</span>
+                  {hasSelfLoops && (
+                    <span style={{ color: '#f59e0b' }}>↻ {counts.self}</span>
+                  )}
+                </div>
+              </div>
+            ),
+          },
+          style: {
+            background: hasSelfLoops ? '#fff8e1' : '#fff',
+            border: hasSelfLoops ? '2px solid #f59e0b' : '2px solid #667eea',
+            borderRadius: '8px',
+            padding: '12px',
+            width: 250,
+            boxShadow: totalConnections > 10 ? '0 4px 12px rgba(102, 126, 234, 0.3)' : '0 2px 4px rgba(0, 0, 0, 0.1)',
+          },
+        };
+      });
+
+      // Create ReactFlow edges
+      const edges: Edge[] = [];
+      
+      // Add regular edges with simplified labels
+      regularEdges.forEach((edge, index) => {
+        // Extract action type from label
+        const label = edge.label || 'action';
+        let actionType = 'action';
+        if (label.toLowerCase().includes('click')) actionType = 'click';
+        else if (label.toLowerCase().includes('type')) actionType = 'type';
+        else if (label.toLowerCase().includes('select')) actionType = 'select';
+        else if (label.toLowerCase().includes('navigate')) actionType = 'navigate';
+        
+        edges.push({
+          id: `e-${edge.source}-${edge.target}-${index}`,
+          source: edge.source,
+          target: edge.target,
+          type: 'smoothstep',
+          animated: false,
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: '#667eea',
+            width: 20,
+            height: 20,
+          },
+          style: {
+            stroke: '#667eea',
+            strokeWidth: 1.5,
+            opacity: 0.7,
+          },
+          label: actionType,
+          labelStyle: {
+            fill: '#667eea',
+            fontWeight: 500,
+            fontSize: '10px',
+            background: 'rgba(255, 255, 255, 0.9)',
+            padding: '2px 6px',
+            borderRadius: '4px',
+          },
+          labelShowBg: true,
+        });
+      });
+
+      // Add aggregated self-loop indicator per node
+      selfLoopsByNode.forEach((loops, nodeId) => {
+        if (loops.length > 0) {
           edges.push({
-            id: `e${nodeId}-self-${loopIndex}`,
+            id: `selfloop-${nodeId}`,
             source: nodeId,
             target: nodeId,
-            label: loopIndex === displayLoops.length - 1 && remainingCount > 0 
-              ? `+${remainingCount} more...` 
-              : shortLabel,
             type: 'selfloop',
             animated: false,
             markerEnd: {
@@ -330,22 +318,25 @@ function App() {
             },
             style: {
               stroke: '#f59e0b',
-              strokeWidth: 1.5,
+              strokeWidth: 2,
               strokeDasharray: '5,5',
             },
+            label: loops.length > 1 ? `${loops.length} self-loops` : 'self-loop',
             labelStyle: {
               fill: '#f59e0b',
               fontWeight: 600,
               fontSize: '10px',
-              background: 'rgba(255, 255, 255, 0.9)',
-              padding: '2px 6px',
+              background: 'rgba(255, 255, 255, 0.95)',
+              padding: '3px 8px',
               borderRadius: '4px',
             },
+            labelShowBg: true,
             data: {
-              offset: loopIndex * 15, // Offset multiple self-loops
+              offset: 60,
+              loops: loops,
             },
           });
-        });
+        }
       });
 
       setFlowNodes(nodes);
@@ -498,7 +489,7 @@ function App() {
               } catch (error) {
                 console.error('Error polling session:', error);
               }
-            }, 2000); // Poll every 2 seconds
+            }, 500); // Poll every 500ms for faster updates
 
             return () => clearInterval(interval);
           }, [currentSession]);
@@ -729,137 +720,126 @@ function App() {
           </div>
         </section>
 
-        {/* Sessions Tabs */}
-        {sessions.length > 0 && (
-          <section className="sessions-tabs-section">
-            <div className="sessions-tabs">
-              {sessions.map((session) => (
-                <button
-                  key={session.sessionId}
-                  className={`session-tab ${currentSession === session.sessionId ? 'active' : ''}`}
-                  onClick={async () => {
-                    setCurrentSession(session.sessionId);
-                    loadGraph(session.sessionId);
-                    // Load user stories for this session
-                    try {
-                      const response = await fetch(`http://localhost:3001/api/session/${session.sessionId}`);
-                      if (response.ok) {
-                        const sessionData: Session = await response.json();
-                        if (sessionData.userStories) {
-                          setUserStories(sessionData.userStories);
-                        } else {
-                          setUserStories(null);
+        {/* Sessions Container with Tabs */}
+        {sessions.length > 0 ? (
+          <section className="sessions-container">
+            {/* Sessions Tabs */}
+            <div className="sessions-tabs-header">
+              <div className="sessions-tabs">
+                {sessions.map((session) => (
+                  <button
+                    key={session.sessionId}
+                    className={`session-tab ${currentSession === session.sessionId ? 'active' : ''}`}
+                    onClick={async () => {
+                      setCurrentSession(session.sessionId);
+                      loadGraph(session.sessionId);
+                      // Load user stories for this session
+                      try {
+                        const response = await fetch(`http://localhost:3001/api/session/${session.sessionId}`);
+                        if (response.ok) {
+                          const sessionData: Session = await response.json();
+                          if (sessionData.userStories) {
+                            setUserStories(sessionData.userStories);
+                          } else {
+                            setUserStories(null);
+                          }
                         }
+                      } catch (error) {
+                        console.error('Error loading user stories:', error);
+                        setUserStories(null);
                       }
-                    } catch (error) {
-                      console.error('Error loading user stories:', error);
-                      setUserStories(null);
-                    }
-                  }}
-                >
-                  <div className="session-tab-content">
-                    <span className="session-tab-id">{session.sessionId.substring(0, 15)}...</span>
-                    <span className={`session-tab-status status-${session.status}`}>{session.status}</span>
-                    {session.status === 'running' && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleStopSession(session.sessionId);
-                        }}
-                        className="session-tab-stop"
-                        title="Stop session"
-                      >
-                        ⏹️
-                      </button>
-                    )}
+                    }}
+                  >
+                    <div className="session-tab-content">
+                      <div className="session-tab-main">
+                        <span className="session-tab-id">Session {sessions.indexOf(session) + 1}</span>
+                        <span className={`session-tab-status status-${session.status}`}>{session.status}</span>
+                      </div>
+                      {session.status === 'running' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStopSession(session.sessionId);
+                          }}
+                          className="session-tab-stop"
+                          title="Stop session"
+                        >
+                          ⏹️
+                        </button>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Session Content - Exploration Visualization and User Stories */}
+            {currentSession ? (
+              <div className="session-content">
+                {/* Visualization Panel */}
+                <section className="visualization-panel">
+                  <h2>🗺️ Exploration Visualization</h2>
+                  <div className="narrative-box">
+                    <p><strong>Visualization:</strong> Interactive mapping of exploration paths, interaction flows, and state transitions discovered by the agent.</p>
                   </div>
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
+                  <button 
+                    onClick={() => loadGraph(currentSession || undefined)} 
+                    className="btn-secondary" 
+                    style={{ marginBottom: '1rem' }}
+                    disabled={!currentSession}
+                  >
+                    🔄 Refresh Graph
+                  </button>
+                  {graphData ? (
+                    <div className="graph-stats">
+                      <div className="stat-item">
+                        <strong>{graphData.nodes.length}</strong> States
+                      </div>
+                      <div className="stat-item">
+                        <strong>{graphData.edges.length}</strong> Transitions
+                      </div>
+                    </div>
+                  ) : null}
+                  {flowNodes.length > 0 ? (
+                    <div className="flow-container">
+                      <div style={{ marginBottom: '0.5rem', fontSize: '0.9rem', color: '#666' }}>
+                        Showing graph for: <strong>{currentSession.substring(0, 30)}...</strong>
+                      </div>
+                      <ReactFlow
+                        nodes={flowNodes}
+                        edges={flowEdges}
+                        edgeTypes={edgeTypes}
+                        fitView
+                        fitViewOptions={{ padding: 0.2, maxZoom: 1.5 }}
+                        attributionPosition="bottom-left"
+                        defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
+                      >
+                        <Background gap={20} size={1} />
+                        <Controls />
+                        <MiniMap 
+                          nodeColor={(node) => {
+                            const hasSelfLoop = flowEdges.some(e => e.source === node.id && e.target === node.id);
+                            return hasSelfLoop ? '#f59e0b' : '#667eea';
+                          }}
+                          maskColor="rgba(0, 0, 0, 0.1)"
+                        />
+                      </ReactFlow>
+                    </div>
+                  ) : (
+                    <div className="empty-state">
+                      <p>No visualization data available for this session.</p>
+                      <p>The session may still be running or hasn't generated any graph data yet.</p>
+                    </div>
+                  )}
+                </section>
 
-        {/* Visualization Panel */}
-        <section className="visualization-panel">
-          <h2>🗺️ Exploration Visualization</h2>
-          <div className="narrative-box">
-            <p><strong>Visualization:</strong> Interactive mapping of exploration paths, interaction flows, and state transitions discovered by the agent.</p>
-          </div>
-          <button 
-            onClick={() => loadGraph(currentSession || undefined)} 
-            className="btn-secondary" 
-            style={{ marginBottom: '1rem' }}
-            disabled={!currentSession}
-          >
-            🔄 Refresh Graph {currentSession ? `(Session)` : ''}
-          </button>
-          {!currentSession && (
-            <div className="empty-state" style={{ marginBottom: '1rem', padding: '1rem', background: '#fff3cd', border: '1px solid #ffc107', borderRadius: '6px' }}>
-              <p style={{ margin: 0, color: '#856404' }}>
-                <strong>Select a session</strong> from the tabs above to view its exploration visualization.
-              </p>
-            </div>
-          )}
-          {graphData ? (
-            <div className="graph-stats">
-              <div className="stat-item">
-                <strong>{graphData.nodes.length}</strong> States
-              </div>
-              <div className="stat-item">
-                <strong>{graphData.edges.length}</strong> Transitions
-              </div>
-            </div>
-          ) : null}
-          {!currentSession ? (
-            <div className="empty-state">
-              <p>No session selected.</p>
-              <p>Select a session from the tabs above to view its exploration visualization.</p>
-            </div>
-          ) : flowNodes.length > 0 ? (
-            <div className="flow-container">
-              <div style={{ marginBottom: '0.5rem', fontSize: '0.9rem', color: '#666' }}>
-                Showing graph for: <strong>{currentSession.substring(0, 30)}...</strong>
-              </div>
-              <ReactFlow
-                nodes={flowNodes}
-                edges={flowEdges}
-                edgeTypes={edgeTypes}
-                fitView
-                fitViewOptions={{ padding: 0.2, maxZoom: 1.5 }}
-                attributionPosition="bottom-left"
-                defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
-              >
-                <Background gap={20} size={1} />
-                <Controls />
-                <MiniMap 
-                  nodeColor={(node) => {
-                    const hasSelfLoop = flowEdges.some(e => e.source === node.id && e.target === node.id);
-                    return hasSelfLoop ? '#f59e0b' : '#667eea';
-                  }}
-                  maskColor="rgba(0, 0, 0, 0.1)"
-                />
-              </ReactFlow>
-            </div>
-          ) : (
-            <div className="empty-state">
-              <p>No visualization data available for this session.</p>
-              <p>The session may still be running or hasn't generated any graph data yet.</p>
-            </div>
-          )}
-        </section>
-
-        {/* User Stories Panel */}
-        <section className="user-stories-panel">
-          <h2>📖 User Stories</h2>
-          <div className="narrative-box">
-            <p><strong>User Stories:</strong> AI-generated user stories compiled from the exploration data, describing complete workflows and user interactions.</p>
-          </div>
-          {!currentSession ? (
-            <div className="empty-state">
-              <p>No session selected.</p>
-              <p>Select a completed session to view compiled user stories.</p>
-            </div>
-          ) : userStories ? (
+                {/* User Stories Panel */}
+                <section className="user-stories-panel">
+                  <h2>📖 User Stories</h2>
+                  <div className="narrative-box">
+                    <p><strong>User Stories:</strong> AI-generated user stories compiled from the exploration data, describing complete workflows and user interactions.</p>
+                  </div>
+                  {userStories ? (
             <div className="user-stories-content">
               {userStories.summary && (
                 <div className="user-stories-summary" style={{
@@ -980,10 +960,24 @@ function App() {
           ) : (
             <div className="empty-state">
               <p>No user stories available for this session.</p>
-              <p>User stories are generated automatically when the exploration completes. If the session is still running, wait for it to complete.</p>
+                    <p>User stories are generated automatically when the exploration completes. If the session is still running, wait for it to complete.</p>
+                  </div>
+                  )}
+                </section>
+              </div>
+            ) : (
+              <div className="session-empty-state">
+                <p>Select a session tab above to view its exploration visualization and user stories.</p>
+              </div>
+            )}
+          </section>
+        ) : (
+          <section className="sessions-container">
+            <div className="session-empty-state">
+              <p>No sessions available. Start an exploration to create a session.</p>
             </div>
-          )}
-        </section>
+          </section>
+        )}
       </main>
     </div>
   );

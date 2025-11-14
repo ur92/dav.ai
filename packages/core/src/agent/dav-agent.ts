@@ -147,9 +147,6 @@ export class DavAgent {
       const elementCount = observation.domState.split('\n').length - 1;
       let historyEntry = `[OBSERVE] Visited ${observation.currentUrl}. Found ${elementCount} actionable elements.`;
       
-      // Emit detailed analysis
-      this.emitDecision(`📊 Page analysis: Found ${elementCount} actionable elements`);
-      
       // Check for cycle: if we've seen this fingerprint before, we've completed a cycle
       const visitedFingerprints = state.visitedFingerprints || [];
       const isCycle = visitedFingerprints.includes(observation.fingerprint);
@@ -157,8 +154,7 @@ export class DavAgent {
       if (isCycle) {
         logger.info('OBSERVE', `Cycle detected! Fingerprint ${observation.fingerprint} was visited before. Ending exploration gracefully.`);
         historyEntry += ' [CYCLE DETECTED - Exploration complete]';
-        this.emitDecision(`🔄 Cycle detected - This page was visited before (fingerprint: ${observation.fingerprint.substring(0, 8)}...)`);
-        this.emitDecision('🏁 Exploration complete');
+        this.emitDecision('🔄 Cycle detected');
         return {
           currentUrl: observation.currentUrl,
           domState: observation.domState,
@@ -364,7 +360,7 @@ export class DavAgent {
             },
           ];
 
-          this.emitDecision('🔐 Auto-login: Filling credentials and clicking login');
+          this.emitDecision('🔐 Auto-login');
           return {
             pendingActions: batchActions,
             explorationStatus: 'CONTINUE',
@@ -421,18 +417,16 @@ Be concise and focus on exploring new paths. Batch related actions together when
         new HumanMessage('What is the next action I should take?'),
       ];
 
-      this.emitDecision('💭 Querying LLM for decision...');
       const response = await this.llm.invoke(messages);
       const content = response.content as string;
 
       logger.info('DECIDE', `LLM Response: ${content}`);
-      this.emitDecision(`💬 LLM response received (${content.length} characters)`);
 
       // Parse LLM response
       let decision: Partial<DavAgentState>;
 
       if (content.includes('FLOW_END') || content.includes('"status": "FLOW_END"')) {
-        this.emitDecision('🏁 Agent decided to end exploration flow');
+        this.emitDecision('🏁 Flow ended');
         decision = {
           explorationStatus: 'FLOW_END',
           pendingAction: null,
@@ -456,14 +450,25 @@ Be concise and focus on exploring new paths. Batch related actions together when
                 url: action.url,
               }));
 
+              // Only emit decision for batch actions (more interesting than single actions)
+              // Format: concise action descriptions
               const actionDescriptions = batchActions.map(a => {
-                if (a.tool === 'clickElement') return `click ${a.selector || 'element'}`;
-                if (a.tool === 'typeText') return `type into ${a.selector || 'field'}`;
-                if (a.tool === 'selectOption') return `select ${a.value} from ${a.selector || 'dropdown'}`;
-                if (a.tool === 'navigate') return `navigate to ${a.url}`;
+                if (a.tool === 'clickElement') {
+                  // Extract meaningful part of selector (e.g., #login-button -> login-button)
+                  const selector = a.selector || 'element';
+                  const cleanSelector = selector.replace(/^[#.]/, '').replace(/\[.*?\]/g, '');
+                  return cleanSelector || 'element';
+                }
+                if (a.tool === 'typeText') {
+                  const selector = a.selector || 'field';
+                  const cleanSelector = selector.replace(/^[#.]/, '').replace(/\[.*?\]/g, '');
+                  return `fill ${cleanSelector}`;
+                }
+                if (a.tool === 'selectOption') return `select ${a.value}`;
+                if (a.tool === 'navigate') return `navigate`;
                 return a.tool;
               });
-              this.emitDecision(`🎯 Decided: ${actionDescriptions.join(' → ')}`);
+              this.emitDecision(`${actionDescriptions.join(' → ')}`);
 
               decision = {
                 pendingActions: batchActions,
@@ -480,19 +485,8 @@ Be concise and focus on exploring new paths. Batch related actions together when
                         url: parsed.url,
                       };
 
-                      let decisionText = '';
-                      if (pendingAction.tool === 'clickElement') {
-                        decisionText = `🎯 Decided: click ${pendingAction.selector || 'element'}`;
-                      } else if (pendingAction.tool === 'typeText') {
-                        decisionText = `🎯 Decided: type into ${pendingAction.selector || 'field'}`;
-                      } else if (pendingAction.tool === 'selectOption') {
-                        decisionText = `🎯 Decided: select ${pendingAction.value} from ${pendingAction.selector || 'dropdown'}`;
-                      } else if (pendingAction.tool === 'navigate') {
-                        decisionText = `🎯 Decided: navigate to ${pendingAction.url}`;
-                      } else {
-                        decisionText = `🎯 Decided: ${pendingAction.tool}`;
-                      }
-                      this.emitDecision(decisionText);
+                      // Don't emit decisions for single actions - they're too verbose
+                      // Only batch actions and special events (login, cycle, flow end) are emitted
 
                       decision = {
                         pendingAction,

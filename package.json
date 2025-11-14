@@ -8,11 +8,16 @@
   ],
   "scripts": {
     "build": "yarn workspaces foreach -A run build",
-    "dev": "yarn workspace @dav-ai/frontend dev",
+    "dev": "concurrently --names \"CORE,FRONTEND\" --prefix-colors \"blue,green\" \"yarn dev:core:server\" \"yarn dev:frontend\"",
     "dev:core": "yarn workspace @dav-ai/core dev",
+    "dev:core:server": "yarn workspace @dav-ai/core dev:server",
     "dev:frontend": "yarn workspace @dav-ai/frontend dev",
-    "start": "yarn workspace @dav-ai/core start",
+    "dev:test-app": "yarn workspace @dav-ai/test-app dev",
+    "start": "concurrently --names \"CORE,FRONTEND\" --prefix-colors \"blue,green\" \"yarn start:core:server\" \"yarn start:frontend\"",
+    "start:core": "yarn workspace @dav-ai/core start",
+    "start:core:server": "yarn workspace @dav-ai/core start:server",
     "start:frontend": "yarn workspace @dav-ai/frontend start",
+    "start:test-app": "yarn workspace @dav-ai/test-app preview",
     "clean": "yarn workspaces foreach -A run clean && rm -rf node_modules",
     "neo4j:up": "docker compose up -d neo4j",
     "neo4j:down": "docker compose down",
@@ -22,6 +27,7 @@
   },
   "packageManager": "yarn@4.0.0",
   "devDependencies": {
+    "concurrently": "^8.2.2",
     "typescript": "^5.5.0"
   }
 }

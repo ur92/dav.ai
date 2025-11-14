@@ -6,6 +6,7 @@ import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { DavAgentState, PendingAction } from '../types/state.js';
 import { BrowserTools } from '../tools/browser-tools.js';
 import { Neo4jTools } from '../tools/neo4j-tools.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * DAV Agent - Main LangGraph StateGraph implementation
@@ -109,7 +110,7 @@ export class DavAgent {
   private async observeState(state: DavAgentState): Promise<Partial<DavAgentState>> {
     try {
       const url = state.currentUrl;
-      console.log(`[OBSERVE] Navigating to: ${url}`);
+      logger.info('OBSERVE', `Navigating to: ${url}`);
 
       const observation = await this.browserTools.observe(url);
 
@@ -122,7 +123,7 @@ export class DavAgent {
         actionHistory: [historyEntry],
       };
     } catch (error) {
-      console.error('[OBSERVE] Error:', error);
+      logger.error('OBSERVE', 'Error', { error: error instanceof Error ? error.message : String(error) });
       return {
         explorationStatus: 'FAILURE',
         actionHistory: [`[OBSERVE] Error: ${error instanceof Error ? error.message : String(error)}`],
@@ -165,7 +166,7 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
       const response = await this.llm.invoke(messages);
       const content = response.content as string;
 
-      console.log(`[DECIDE] LLM Response: ${content}`);
+      logger.info('DECIDE', `LLM Response: ${content}`);
 
       // Parse LLM response
       let decision: Partial<DavAgentState>;
@@ -214,7 +215,7 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
 
       return decision;
     } catch (error) {
-      console.error('[DECIDE] Error:', error);
+      logger.error('DECIDE', 'Error', { error: error instanceof Error ? error.message : String(error) });
       return {
         explorationStatus: 'FAILURE',
         actionHistory: [`[DECIDE] Error: ${error instanceof Error ? error.message : String(error)}`],
@@ -238,7 +239,7 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
       const fromUrl = state.currentUrl;
       this.previousUrl = fromUrl;
 
-      console.log(`[EXECUTE] Executing ${action.tool}...`);
+      logger.info('EXECUTE', `Executing ${action.tool}...`);
 
       // Execute the browser action
       switch (action.tool) {
@@ -304,7 +305,7 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
         explorationStatus: 'CONTINUE',
       };
     } catch (error) {
-      console.error('[EXECUTE] Error:', error);
+      logger.error('EXECUTE', 'Error', { error: error instanceof Error ? error.message : String(error) });
       return {
         explorationStatus: 'FAILURE',
         actionHistory: [`[EXECUTE] Error: ${error instanceof Error ? error.message : String(error)}`],
@@ -321,7 +322,7 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
     }
 
     try {
-      console.log(`[PERSIST] Executing ${state.neo4jQueries.length} Neo4j queries...`);
+      logger.info('PERSIST', `Executing ${state.neo4jQueries.length} Neo4j queries...`);
       await this.neo4jTools.executeQueries(state.neo4jQueries);
 
       return {
@@ -329,7 +330,7 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
         actionHistory: [`[PERSIST] Successfully persisted ${state.neo4jQueries.length} queries to Neo4j.`],
       };
     } catch (error) {
-      console.error('[PERSIST] Error:', error);
+      logger.error('PERSIST', 'Error', { error: error instanceof Error ? error.message : String(error) });
       return {
         actionHistory: [`[PERSIST] Error: ${error instanceof Error ? error.message : String(error)}`],
         // Don't fail the flow on persistence errors, just log them
@@ -342,7 +343,7 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
    */
   private async checkContinue(state: DavAgentState): Promise<Partial<DavAgentState>> {
     // This node is mainly for logging; actual routing is handled by conditional edges
-    console.log(`[CHECK] Exploration status: ${state.explorationStatus}`);
+    logger.info('CHECK', `Exploration status: ${state.explorationStatus}`);
     return {};
   }
 
@@ -381,7 +382,7 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
     let currentState = initialState;
     let iterations = 0;
 
-    console.log(`[AGENT] Starting exploration from: ${startingUrl}`);
+    logger.info('AGENT', `Starting exploration from: ${startingUrl}`);
 
     while (currentState.explorationStatus === 'CONTINUE' && iterations < maxIterations) {
       try {
@@ -389,16 +390,16 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
         currentState = result as DavAgentState;
         iterations++;
 
-        console.log(`[AGENT] Iteration ${iterations}/${maxIterations} - Status: ${currentState.explorationStatus}`);
+        logger.info('AGENT', `Iteration ${iterations}/${maxIterations} - Status: ${currentState.explorationStatus}`);
       } catch (error) {
-        console.error(`[AGENT] Error in iteration ${iterations}:`, error);
+        logger.error('AGENT', `Error in iteration ${iterations}`, { error: error instanceof Error ? error.message : String(error) });
         currentState.explorationStatus = 'FAILURE';
         break;
       }
     }
 
     if (iterations >= maxIterations) {
-      console.log('[AGENT] Reached maximum iterations limit.');
+      logger.info('AGENT', 'Reached maximum iterations limit.');
       currentState.explorationStatus = 'FLOW_END';
     }
 

@@ -1,4 +1,5 @@
 import neo4j, { Driver, Session } from 'neo4j-driver';
+import { logger } from '../utils/logger.js';
 
 /**
  * Neo4jTools - Handles all Neo4j database operations
@@ -28,7 +29,7 @@ export class Neo4jTools {
         }
       });
     } catch (error) {
-      console.error('Error executing Neo4j queries:', error);
+      logger.error('Neo4j', 'Error executing Neo4j queries', { error: error instanceof Error ? error.message : String(error) });
       throw error;
     } finally {
       await session.close();
@@ -94,7 +95,7 @@ export class Neo4jTools {
       await session.close();
       return true;
     } catch (error) {
-      console.error('Neo4j connectivity test failed:', error);
+      logger.error('Neo4j', 'Neo4j connectivity test failed', { error: error instanceof Error ? error.message : String(error) });
       return false;
     }
   }

@@ -3,6 +3,7 @@ import { Neo4jTools } from './tools/neo4j-tools.js';
 import { DavAgent } from './agent/dav-agent.js';
 import { AgentService } from './services/agent-service.js';
 import { ConfigService } from './services/config-service.js';
+import { logger } from './utils/logger.js';
 import * as dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -16,8 +17,23 @@ dotenv.config({ path: rootEnvPath });
 
 /**
  * Main entry point for DAV.ai agent
+ * Can be used as a function (returns exploration result) or as CLI entry point
+ * 
+ * @param url - Optional URL to explore. If not provided, uses config.startingUrl
+ * @param maxIterations - Optional max iterations. If not provided, uses config.maxIterations
+ * @param autoCleanup - Whether to automatically cleanup resources after completion (default: true for CLI, false for API)
+ * @returns Promise with exploration result containing browserTools, neo4jTools, agent, and runPromise
  */
-async function main() {
+async function main(
+  url?: string,
+  maxIterations?: number,
+  autoCleanup: boolean = true
+): Promise<{
+  browserTools: BrowserTools;
+  neo4jTools: Neo4jTools;
+  agent: any;
+  runPromise: Promise<any>;
+}> {
   // Initialize configuration service (loads all env vars)
   ConfigService.initialize();
   
@@ -25,67 +41,88 @@ async function main() {
   try {
     ConfigService.validate();
   } catch (error) {
-    console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error('Config', `Error: ${errorMessage}`);
+    if (autoCleanup) {
+      process.exit(1);
+    }
+    throw error;
   }
 
   // Get configuration from ConfigService (single source of truth)
   const config = ConfigService.getConfig();
+  const explorationUrl = url ?? config.startingUrl;
+  const iterations = maxIterations ?? config.maxIterations;
 
-  console.log('🚀 DAV.ai Agent Starting...');
-  console.log(`Starting URL: ${config.startingUrl}`);
-  console.log(`Neo4j URI: ${config.neo4jUri}`);
-  console.log(`LLM Provider: ${config.llmProvider}`);
-  console.log(`LLM Model: ${config.llmModel}`);
-  console.log(`Max Iterations: ${config.maxIterations}\n`);
+  logger.info('Agent', '🚀 DAV.ai Agent Starting...');
+  logger.info('Agent', `Starting URL: ${explorationUrl}`);
+  logger.info('Agent', `Neo4j URI: ${config.neo4jUri}`);
+  logger.info('Agent', `LLM Provider: ${config.llmProvider}`);
+  logger.info('Agent', `LLM Model: ${config.llmModel}`);
+  logger.info('Agent', `Max Iterations: ${iterations}`);
 
   let browserTools: BrowserTools | null = null;
   let neo4jTools: Neo4jTools | null = null;
 
   try {
     // Use AgentService to initialize and run exploration
-    console.log('Initializing agent service...');
-    const serviceResult = await AgentService.runExploration(config.startingUrl, config.maxIterations);
+    logger.info('Agent', 'Initializing agent service...');
+    const serviceResult = await AgentService.runExploration(explorationUrl, iterations);
     browserTools = serviceResult.browserTools;
     neo4jTools = serviceResult.neo4jTools;
-    console.log('✓ Agent service initialized\n');
+    logger.info('Agent', '✓ Agent service initialized');
 
-    // Wait for exploration to complete
+    // If autoCleanup is false, return the result for the caller to manage
+    if (!autoCleanup) {
+      return serviceResult;
+    }
+
+    // Wait for exploration to complete (only for CLI mode with autoCleanup)
     const finalState = await serviceResult.runPromise;
 
     // Print final results
-    console.log('\n📊 Exploration Complete!');
-    console.log(`Final Status: ${finalState.explorationStatus}`);
-    console.log(`Final URL: ${finalState.currentUrl}`);
-    console.log(`Total Actions: ${finalState.actionHistory.length}`);
-    console.log('\nAction History:');
+    logger.info('Agent', '📊 Exploration Complete!');
+    logger.info('Agent', `Final Status: ${finalState.explorationStatus}`);
+    logger.info('Agent', `Final URL: ${finalState.currentUrl}`);
+    logger.info('Agent', `Total Actions: ${finalState.actionHistory.length}`);
+    logger.info('Agent', 'Action History:');
     finalState.actionHistory.forEach((action, idx) => {
-      console.log(`  ${idx + 1}. ${action}`);
+      logger.info('Agent', `  ${idx + 1}. ${action}`);
     });
 
     // TODO: Post-flow summarization for User Story generation
     // This would query Neo4j for the path and use LLM to generate User Stories
 
+    return serviceResult;
+
   } catch (error) {
-    console.error('Fatal error:', error);
-    process.exit(1);
+    logger.error('Agent', 'Fatal error', { error: error instanceof Error ? error.message : String(error) });
+    if (autoCleanup) {
+      process.exit(1);
+    }
+    throw error;
   } finally {
-    // Cleanup
-    console.log('\nCleaning up...');
-    if (browserTools) {
-      await browserTools.close();
+    // Cleanup only if autoCleanup is enabled
+    if (autoCleanup) {
+      logger.info('Agent', 'Cleaning up...');
+      if (browserTools) {
+        await browserTools.close();
+      }
+      if (neo4jTools) {
+        await neo4jTools.close();
+      }
+      logger.info('Agent', '✓ Cleanup complete');
     }
-    if (neo4jTools) {
-      await neo4jTools.close();
-    }
-    console.log('✓ Cleanup complete');
   }
 }
 
 // Run if this is the main module
 if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('index.js')) {
-  main().catch(console.error);
+  main().catch((error) => {
+    logger.error('Agent', 'Unhandled error in main', { error: error instanceof Error ? error.message : String(error) });
+  });
 }
 
 export { main };
+export { logger, LogLevel } from './utils/logger.js';
 

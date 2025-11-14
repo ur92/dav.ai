@@ -3,6 +3,7 @@ import { Neo4jTools } from '../tools/neo4j-tools.js';
 import { DavAgent } from '../agent/dav-agent.js';
 import type { DavAgentState } from '../types/state.js';
 import { AgentService } from './agent-service.js';
+import { logger } from '../utils/logger.js';
 
 export interface Session {
   sessionId: string;
@@ -36,20 +37,45 @@ export class SessionService {
     // Use AgentService to initialize and run exploration
     const { browserTools, neo4jTools, agent, runPromise } = await AgentService.runExploration(url, maxIterations);
 
-    const session: Session = {
+    return this.registerSession({
       sessionId,
       browserTools,
       neo4jTools,
       agent,
       runPromise,
-      status: 'running',
       url,
       maxIterations,
+    });
+  }
+
+  /**
+   * Register a session from an exploration result (e.g., from main() function)
+   */
+  static registerSession(result: {
+    sessionId?: string;
+    browserTools: BrowserTools;
+    neo4jTools: Neo4jTools;
+    agent: DavAgent;
+    runPromise: Promise<DavAgentState>;
+    url: string;
+    maxIterations: number;
+  }): Session {
+    const sessionId = result.sessionId || `session-${Date.now()}`;
+
+    const session: Session = {
+      sessionId,
+      browserTools: result.browserTools,
+      neo4jTools: result.neo4jTools,
+      agent: result.agent,
+      runPromise: result.runPromise,
+      status: 'running',
+      url: result.url,
+      maxIterations: result.maxIterations,
       createdAt: new Date(),
     };
 
     // Handle completion/error
-    runPromise
+    result.runPromise
       .then((finalState: DavAgentState) => {
         session.status = 'completed';
         session.currentState = finalState;
@@ -149,7 +175,7 @@ export class SessionService {
         await session.neo4jTools.close();
       } catch (error) {
         // Log but don't throw - continue cleanup
-        console.error(`Error cleaning up session ${session.sessionId}:`, error);
+        logger.error('Session', `Error cleaning up session ${session.sessionId}`, { error: error instanceof Error ? error.message : String(error) });
       }
     });
 

@@ -28,11 +28,14 @@ export class ConfigService {
   static initialize(): void {
     const llmProvider = ((process.env.LLM_PROVIDER || 'openai').toLowerCase()) as 'openai' | 'anthropic';
     
+    // Get API key - only use LLM_API_KEY
+    const llmApiKey = process.env.LLM_API_KEY || '';
+    
     this.config = {
       // LLM Configuration
       llmProvider,
-      llmModel: process.env.LLM_MODEL || (llmProvider === 'anthropic' ? 'claude-3-5-sonnet-20241022' : 'gpt-4o'),
-      llmApiKey: process.env.LLM_API_KEY || '',
+      llmModel: process.env.LLM_MODEL || (llmProvider === 'anthropic' ? 'claude-sonnet-4-5' : 'gpt-4o'),
+      llmApiKey,
       
       // Neo4j Configuration
       neo4jUri: process.env.NEO4J_URI || 'bolt://localhost:7687',

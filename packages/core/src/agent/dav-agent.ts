@@ -32,7 +32,7 @@ export class DavAgent {
     if (llmProvider === 'anthropic') {
       this.llm = new ChatAnthropic({
         anthropicApiKey: llmApiKey,
-        modelName: llmModel || 'claude-3-5-sonnet-20241022',
+        modelName: llmModel || 'claude-sonnet-4-5',
         temperature: 0.1, // Low temperature for deterministic decisions
       });
     } else {
@@ -89,7 +89,6 @@ export class DavAgent {
     this.graph.addNode('decide_action', this.decideAction.bind(this));
     this.graph.addNode('execute_tool', this.executeTool.bind(this));
     this.graph.addNode('persist_data', this.persistData.bind(this));
-    this.graph.addNode('check_continue', this.checkContinue.bind(this));
 
     // Define edges - LangGraph API
     // Using type assertions to work around TypeScript strict typing
@@ -114,8 +113,13 @@ export class DavAgent {
 
       const observation = await this.browserTools.observe(url);
 
-      // Update action history
-      const historyEntry = `[OBSERVE] Visited ${observation.currentUrl}. Found ${observation.domState.split('\n').length - 1} actionable elements.`;
+      // Count actionable elements (subtract 1 for the header line)
+      const elementCount = observation.domState.split('\n').length - 1;
+      const historyEntry = `[OBSERVE] Visited ${observation.currentUrl}. Found ${elementCount} actionable elements.`;
+      
+      // Log the DOM state for debugging
+      logger.info('OBSERVE', `DOM State (first 500 chars): ${observation.domState.substring(0, 500)}`);
+      logger.info('OBSERVE', `Current URL: ${observation.currentUrl}, Fingerprint: ${observation.fingerprint}`);
 
       return {
         currentUrl: observation.currentUrl,
@@ -123,7 +127,7 @@ export class DavAgent {
         actionHistory: [historyEntry],
       };
     } catch (error) {
-      logger.error('OBSERVE', 'Error', { error: error instanceof Error ? error.message : String(error) });
+      logger.error('OBSERVE', 'Error', { error: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined });
       return {
         explorationStatus: 'FAILURE',
         actionHistory: [`[OBSERVE] Error: ${error instanceof Error ? error.message : String(error)}`],
@@ -336,15 +340,6 @@ Be concise and focus on exploring new paths. Avoid repeating actions you've alre
         // Don't fail the flow on persistence errors, just log them
       };
     }
-  }
-
-  /**
-   * Node 5: check_continue - Conditional routing based on exploration status
-   */
-  private async checkContinue(state: DavAgentState): Promise<Partial<DavAgentState>> {
-    // This node is mainly for logging; actual routing is handled by conditional edges
-    logger.info('CHECK', `Exploration status: ${state.explorationStatus}`);
-    return {};
   }
 
   /**

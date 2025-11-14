@@ -68,8 +68,7 @@ dav-ai/
    ```env
    # LLM Provider Configuration (choose one)
    LLM_PROVIDER=anthropic  # or 'openai'
-   ANTHROPIC_API_KEY=your_anthropic_api_key_here
-   # OPENAI_API_KEY=your_openai_api_key_here  # if using OpenAI
+   LLM_API_KEY=your_llm_api_key_here
    
    # LLM Model (optional, has defaults based on provider)
    LLM_MODEL=claude-3-5-sonnet-20241022  # or 'gpt-4o' for OpenAI

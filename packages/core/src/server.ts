@@ -38,7 +38,7 @@ ConfigService.initialize();
 
 // Print configuration on startup (mask API key for security)
 const config = ConfigService.getConfig();
-const apiKey = config.llmApiKey;
+const apiKey = ConfigService.getLLMApiKey();
 const maskedApiKey = apiKey 
   ? (apiKey.length > 12 
       ? `${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)}` 
@@ -124,6 +124,11 @@ app.post('/explore', async (req, res) => {
           error: error.message,
           stack: error.stack,
         });
+        // Store error in session for debugging
+        (session as any).error = {
+          message: error.message,
+          stack: error.stack,
+        };
         // Session status will be updated by SessionService
       });
 
@@ -152,11 +157,18 @@ app.get('/session/:sessionId', (req, res) => {
       return res.status(404).json({ error: 'Session not found' });
     }
 
-    res.json({
+    const response: any = {
       sessionId,
       status: session.status,
       currentState: session.currentState,
-    });
+    };
+    
+    // Include error details if available
+    if ((session as any).error) {
+      response.error = (session as any).error;
+    }
+    
+    res.json(response);
   } catch (error) {
     res.status(500).json({
       error: 'Failed to retrieve session',
@@ -220,7 +232,7 @@ app.get('/graph', async (req, res) => {
 export function startServer(port: number = 3000) {
   app.listen(port, () => {
     const config = ConfigService.getConfig();
-    const apiKey = config.llmApiKey;
+    const apiKey = ConfigService.getLLMApiKey();
     const maskedApiKey = apiKey 
       ? (apiKey.length > 12 
           ? `${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)}` 

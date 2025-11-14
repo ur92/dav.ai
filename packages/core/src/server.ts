@@ -41,6 +41,14 @@ ConfigService.initialize();
 const config = ConfigService.getConfig();
 logger.initialize(config.logLevel);
 
+// Initialize session persistence and load sessions from Neo4j
+SessionService.initializePersistence();
+SessionService.loadSessionsFromPersistence().catch((error) => {
+  logger.error('Server', 'Failed to load sessions from persistence', {
+    error: error instanceof Error ? error.message : String(error),
+  });
+});
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -249,9 +257,9 @@ app.post('/session/:sessionId/stop', async (req, res) => {
 });
 
 // List all sessions
-app.get('/sessions', (req, res) => {
+app.get('/sessions', async (req, res) => {
   try {
-    const sessions = SessionService.getAllSessionSummaries();
+    const sessions = await SessionService.getAllSessionSummaries();
     res.json({ sessions });
   } catch (error) {
     res.status(500).json({

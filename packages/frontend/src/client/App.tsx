@@ -124,27 +124,96 @@ function App() {
   const [flowEdges, setFlowEdges] = useState<Edge[]>([]);
   const [userStories, setUserStories] = useState<UserStoriesResult | null>(null);
 
-  // Convert graph data to ReactFlow format with better layout
+  // Convert graph data to ReactFlow format with hierarchical layout
   useEffect(() => {
     if (graphData && graphData.nodes.length > 0) {
-      // Create a map to track node positions and connections
-      const nodeMap = new Map<string, { x: number; y: number; connections: number }>();
       const nodePositions = new Map<string, { x: number; y: number }>();
       
-      // Calculate layout: use a hierarchical/force-directed-like approach
-      // For now, use a simple grid but with better spacing
-      const cols = Math.ceil(Math.sqrt(graphData.nodes.length));
-      const nodeWidth = 250;
-      const nodeHeight = 120;
-      const spacingX = nodeWidth + 50;
-      const spacingY = nodeHeight + 50;
+      // Build adjacency lists for topological sorting
+      const inDegree = new Map<string, number>();
+      const outEdges = new Map<string, string[]>();
       
-      graphData.nodes.forEach((node, index) => {
-        const col = index % cols;
-        const row = Math.floor(index / cols);
-        nodePositions.set(node.id, {
-          x: col * spacingX + 100,
-          y: row * spacingY + 100,
+      // Initialize all nodes
+      graphData.nodes.forEach(node => {
+        inDegree.set(node.id, 0);
+        outEdges.set(node.id, []);
+      });
+      
+      // Build graph structure
+      graphData.edges.forEach(edge => {
+        if (edge.source !== edge.target) { // Skip self-loops for layout
+          const currentIn = inDegree.get(edge.target) || 0;
+          inDegree.set(edge.target, currentIn + 1);
+          
+          const currentOut = outEdges.get(edge.source) || [];
+          currentOut.push(edge.target);
+          outEdges.set(edge.source, currentOut);
+        }
+      });
+      
+      // Topological sort for hierarchical layout
+      const layers: string[][] = [];
+      const processed = new Set<string>();
+      const nodeWidth = 280;
+      const nodeHeight = 140;
+      const spacingX = nodeWidth + 80;
+      const spacingY = nodeHeight + 60;
+      
+      // Find root nodes (nodes with no incoming edges)
+      let currentLayer: string[] = [];
+      inDegree.forEach((degree, nodeId) => {
+        if (degree === 0) {
+          currentLayer.push(nodeId);
+        }
+      });
+      
+      // If no root nodes (circular graph), start with first node
+      if (currentLayer.length === 0 && graphData.nodes.length > 0) {
+        currentLayer = [graphData.nodes[0].id];
+      }
+      
+      // Build layers using BFS-like approach
+      while (currentLayer.length > 0) {
+        layers.push([...currentLayer]);
+        currentLayer.forEach(nodeId => processed.add(nodeId));
+        
+        const nextLayer: string[] = [];
+        currentLayer.forEach(nodeId => {
+          const children = outEdges.get(nodeId) || [];
+          children.forEach(childId => {
+            if (!processed.has(childId)) {
+              const remainingIn = (inDegree.get(childId) || 0) - 1;
+              inDegree.set(childId, remainingIn);
+              if (remainingIn === 0 && !nextLayer.includes(childId)) {
+                nextLayer.push(childId);
+              }
+            }
+          });
+        });
+        
+        currentLayer = nextLayer;
+      }
+      
+      // Add any remaining nodes (for circular dependencies)
+      graphData.nodes.forEach(node => {
+        if (!processed.has(node.id)) {
+          if (layers.length === 0) {
+            layers.push([]);
+          }
+          layers[layers.length - 1].push(node.id);
+        }
+      });
+      
+      // Position nodes in layers
+      layers.forEach((layer, layerIndex) => {
+        const layerWidth = layer.length * spacingX;
+        const startX = Math.max(100, (1400 - layerWidth) / 2); // Center the layer
+        
+        layer.forEach((nodeId, nodeIndex) => {
+          nodePositions.set(nodeId, {
+            x: startX + nodeIndex * spacingX,
+            y: 100 + layerIndex * spacingY,
+          });
         });
       });
 
@@ -537,8 +606,17 @@ function App() {
     <div className="app">
       <header className="app-header">
         <h1>🤖 DAV.ai</h1>
-        <p className="tagline">Discovery • Analysis • Validation</p>
-        <p className="subtitle">Agentic Web Operator - Data-Driven User Story Mapping</p>
+        <div className="header-concepts">
+          <div className="concept-item">
+            <strong>Data-driven</strong>
+          </div>
+          <div className="concept-item">
+            <strong>Agent</strong>
+          </div>
+          <div className="concept-item">
+            <strong>Visualization</strong>
+          </div>
+        </div>
       </header>
 
       <main className="app-main">
@@ -651,17 +729,14 @@ function App() {
           </div>
         </section>
 
-        {/* Sessions Panel */}
-        <section className="sessions-panel">
-          <h2>🔌 Active Sessions</h2>
-          {sessions.length === 0 ? (
-            <p className="empty-state">No active sessions</p>
-          ) : (
-            <div className="sessions-list">
+        {/* Sessions Tabs */}
+        {sessions.length > 0 && (
+          <section className="sessions-tabs-section">
+            <div className="sessions-tabs">
               {sessions.map((session) => (
-                <div 
-                  key={session.sessionId} 
-                  className={`session-item ${currentSession === session.sessionId ? 'active' : ''}`}
+                <button
+                  key={session.sessionId}
+                  className={`session-tab ${currentSession === session.sessionId ? 'active' : ''}`}
                   onClick={async () => {
                     setCurrentSession(session.sessionId);
                     loadGraph(session.sessionId);
@@ -681,45 +756,34 @@ function App() {
                       setUserStories(null);
                     }
                   }}
-                  style={{ cursor: 'pointer' }}
                 >
-                  <div>
-                    <strong>Session:</strong> {session.sessionId.substring(0, 20)}...
-                    <br />
-                    <strong>Status:</strong> <span className={`status-${session.status}`}>{session.status}</span>
-                    {session.currentState?.actionHistory && (
-                      <div className="action-count">
-                        Actions: {session.currentState.actionHistory.length}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                    {currentSession === session.sessionId && (
-                      <span style={{ color: '#667eea', fontWeight: 'bold' }}>👁️ Viewing</span>
-                    )}
+                  <div className="session-tab-content">
+                    <span className="session-tab-id">{session.sessionId.substring(0, 15)}...</span>
+                    <span className={`session-tab-status status-${session.status}`}>{session.status}</span>
                     {session.status === 'running' && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           handleStopSession(session.sessionId);
                         }}
-                        className="btn-secondary"
+                        className="session-tab-stop"
+                        title="Stop session"
                       >
-                        Stop
+                        ⏹️
                       </button>
                     )}
                   </div>
-                </div>
+                </button>
               ))}
             </div>
-          )}
-        </section>
+          </section>
+        )}
 
         {/* Visualization Panel */}
         <section className="visualization-panel">
-          <h2>🗺️ User Story Visualization</h2>
+          <h2>🗺️ Exploration Visualization</h2>
           <div className="narrative-box">
-            <p><strong>Visualization:</strong> Interactive mapping of user stories, interaction flows, and state transitions for human developers.</p>
+            <p><strong>Visualization:</strong> Interactive mapping of exploration paths, interaction flows, and state transitions discovered by the agent.</p>
           </div>
           <button 
             onClick={() => loadGraph(currentSession || undefined)} 
@@ -732,7 +796,7 @@ function App() {
           {!currentSession && (
             <div className="empty-state" style={{ marginBottom: '1rem', padding: '1rem', background: '#fff3cd', border: '1px solid #ffc107', borderRadius: '6px' }}>
               <p style={{ margin: 0, color: '#856404' }}>
-                <strong>Select a session</strong> from the Active Sessions panel to view its graph visualization.
+                <strong>Select a session</strong> from the tabs above to view its exploration visualization.
               </p>
             </div>
           )}
@@ -749,7 +813,7 @@ function App() {
           {!currentSession ? (
             <div className="empty-state">
               <p>No session selected.</p>
-              <p>Click on a session in the Active Sessions panel to view its graph visualization.</p>
+              <p>Select a session from the tabs above to view its exploration visualization.</p>
             </div>
           ) : flowNodes.length > 0 ? (
             <div className="flow-container">
@@ -786,7 +850,7 @@ function App() {
 
         {/* User Stories Panel */}
         <section className="user-stories-panel">
-          <h2>📖 Compiled User Stories</h2>
+          <h2>📖 User Stories</h2>
           <div className="narrative-box">
             <p><strong>User Stories:</strong> AI-generated user stories compiled from the exploration data, describing complete workflows and user interactions.</p>
           </div>

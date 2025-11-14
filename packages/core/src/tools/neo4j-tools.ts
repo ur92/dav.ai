@@ -160,8 +160,15 @@ export class Neo4jTools {
         FOR (n:State) ON (n.sessionId)
       `;
       
+      // Create index on Session nodes for sessionId
+      const createSessionIndexQuery = `
+        CREATE INDEX session_sessionId_index IF NOT EXISTS
+        FOR (n:Session) ON (n.sessionId)
+      `;
+      
       await session.run(createIndexQuery);
-      logger.info('Neo4j', 'Ensured indexes exist for sessionId');
+      await session.run(createSessionIndexQuery);
+      logger.info('Neo4j', 'Ensured indexes exist for sessionId and Session nodes');
     } catch (error) {
       // Index might already exist, which is fine
       logger.warn('Neo4j', 'Could not create index (might already exist)', {
@@ -169,6 +176,146 @@ export class Neo4jTools {
       });
     } finally {
       await session.close();
+    }
+  }
+
+  /**
+   * Save or update session metadata in Neo4j
+   */
+  async saveSessionMetadata(metadata: {
+    sessionId: string;
+    status: 'idle' | 'running' | 'completed' | 'error';
+    url: string;
+    maxIterations: number;
+    createdAt: Date;
+    updatedAt?: Date;
+    error?: string;
+  }): Promise<void> {
+    const dbSession = this.driver.session();
+    
+    try {
+      // Convert dates to ISO strings for storage
+      const createdAt = metadata.createdAt.toISOString();
+      const updatedAt = (metadata.updatedAt || new Date()).toISOString();
+      
+      const query = `
+        MERGE (s:Session {sessionId: $sessionId})
+        ON CREATE SET s.createdAt = $createdAt,
+                      s.status = $status,
+                      s.url = $url,
+                      s.maxIterations = $maxIterations,
+                      s.updatedAt = $updatedAt,
+                      s.error = $error
+        ON MATCH SET s.status = $status,
+                     s.url = $url,
+                     s.maxIterations = $maxIterations,
+                     s.updatedAt = $updatedAt,
+                     s.error = $error
+        RETURN s
+      `;
+      
+      const params: any = {
+        sessionId: metadata.sessionId,
+        status: metadata.status,
+        url: metadata.url,
+        maxIterations: neo4j.int(metadata.maxIterations),
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+        error: metadata.error || null,
+      };
+      
+      await dbSession.run(query, params);
+      logger.info('Neo4j', `Saved session metadata: ${metadata.sessionId}`);
+    } catch (error) {
+      logger.error('Neo4j', 'Error saving session metadata', {
+        sessionId: metadata.sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    } finally {
+      await dbSession.close();
+    }
+  }
+
+  /**
+   * Load all session metadata from Neo4j
+   */
+  async loadAllSessionMetadata(): Promise<Array<{
+    sessionId: string;
+    status: 'idle' | 'running' | 'completed' | 'error';
+    url: string;
+    maxIterations: number;
+    createdAt: Date;
+    updatedAt: Date;
+    error?: string;
+  }>> {
+    const dbSession = this.driver.session();
+    
+    try {
+      const query = `
+        MATCH (s:Session)
+        RETURN s
+        ORDER BY s.createdAt DESC
+      `;
+      
+      const result = await dbSession.run(query);
+      
+      return result.records.map((record) => {
+        const node = record.get('s');
+        const properties = node.properties;
+        
+        // Handle both string and neo4j datetime types
+        const createdAt = typeof properties.createdAt === 'string' 
+          ? new Date(properties.createdAt) 
+          : new Date(properties.createdAt.toString());
+        const updatedAt = typeof properties.updatedAt === 'string'
+          ? new Date(properties.updatedAt)
+          : new Date(properties.updatedAt.toString());
+        
+        return {
+          sessionId: properties.sessionId,
+          status: properties.status as 'idle' | 'running' | 'completed' | 'error',
+          url: properties.url,
+          maxIterations: typeof properties.maxIterations === 'number' 
+            ? properties.maxIterations 
+            : properties.maxIterations.toNumber(),
+          createdAt,
+          updatedAt,
+          error: properties.error || undefined,
+        };
+      });
+    } catch (error) {
+      logger.error('Neo4j', 'Error loading session metadata', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    } finally {
+      await dbSession.close();
+    }
+  }
+
+  /**
+   * Delete session metadata from Neo4j
+   */
+  async deleteSessionMetadata(sessionId: string): Promise<void> {
+    const dbSession = this.driver.session();
+    
+    try {
+      const query = `
+        MATCH (s:Session {sessionId: $sessionId})
+        DELETE s
+      `;
+      
+      await dbSession.run(query, { sessionId });
+      logger.info('Neo4j', `Deleted session metadata: ${sessionId}`);
+    } catch (error) {
+      logger.error('Neo4j', 'Error deleting session metadata', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    } finally {
+      await dbSession.close();
     }
   }
 

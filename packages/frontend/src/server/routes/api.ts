@@ -209,5 +209,94 @@ router.get('/graph', async (req, res) => {
   }
 });
 
+// Start retry for a user story
+router.post('/retry', async (req, res) => {
+  const { sessionId, storyIndex, credentials } = req.body;
+
+  if (!sessionId || storyIndex === undefined) {
+    return res.status(400).json({ error: 'sessionId and storyIndex are required' });
+  }
+
+  try {
+    const response = await fetch(`${CORE_SERVICE_URL}/retry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, storyIndex, credentials }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(errorData.message || `Core service returned ${response.status}`);
+    }
+
+    const result = await response.json();
+    res.json(result);
+  } catch (error) {
+    logger.error('API', 'Error starting retry', {
+      sessionId,
+      storyIndex,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    res.status(500).json({
+      error: 'Failed to start retry',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// Get retry status
+router.get('/retry/:retryId', async (req, res) => {
+  const { retryId } = req.params;
+
+  try {
+    const response = await fetch(`${CORE_SERVICE_URL}/retry/${retryId}`);
+    
+    if (!response.ok) {
+      if (response.status === 404) {
+        return res.status(404).json({ error: 'Retry session not found' });
+      }
+      throw new Error(`Core service returned ${response.status}`);
+    }
+
+    const retrySession = await response.json();
+    res.json(retrySession);
+  } catch (error) {
+    logger.error('API', 'Error getting retry status', {
+      retryId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({
+      error: 'Failed to get retry status',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// Get all retries for a session
+router.get('/session/:sessionId/retries', async (req, res) => {
+  const { sessionId } = req.params;
+
+  try {
+    const response = await fetch(`${CORE_SERVICE_URL}/session/${sessionId}/retries`);
+    
+    if (!response.ok) {
+      throw new Error(`Core service returned ${response.status}`);
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    logger.error('API', 'Error getting retries for session', {
+      sessionId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({
+      error: 'Failed to get retries',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 export default router;
 

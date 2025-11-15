@@ -15,6 +15,12 @@ body {
 
 .app {
   min-height: 100vh;
+  position: relative;
+}
+
+/* Adjust main content when retry panel is visible */
+.app.with-retry-panel {
+  margin-right: 320px;
 }
 
 .app-header {
@@ -563,4 +569,41 @@ button {
   .flow-container {
     height: 400px;
   }
+}
+
+/* Retry button styles */
+.btn-retry {
+  padding: 0.5rem 1rem;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.btn-retry:hover:not(:disabled) {
+  background: #5568d3;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+}
+
+.btn-retry:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-retry:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* Ensure user story card header has proper spacing */
+.user-story-card h3 {
+  border-bottom: 2px solid #667eea;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.75rem !important;
 }

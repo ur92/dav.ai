@@ -173,4 +173,6 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith
 export { main };
 export { logger } from './utils/logger.js';
 export type { LogLevel } from './utils/logger.js';
+export { RetryService } from './services/retry-service.js';
+export type { RetryStep, RetrySession } from './services/retry-service.js';
 

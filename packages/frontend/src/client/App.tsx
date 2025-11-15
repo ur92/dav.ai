@@ -14,6 +14,7 @@ import ReactFlow, {
 import dagre from 'dagre';
 import 'reactflow/dist/style.css';
 import './App.css';
+import RetryProgressPanel from './RetryProgressPanel';
 
 // Custom edge component for self-loops
 function SelfLoopEdge({
@@ -124,6 +125,24 @@ interface GraphData {
   edges: Array<{ source: string; target: string; label: string }>;
 }
 
+interface RetryStep {
+  index: number;
+  description: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  error?: string;
+  timestamp?: number;
+}
+
+interface RetrySession {
+  retryId: string;
+  sessionId: string;
+  storyIndex: number;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  steps: RetryStep[];
+  startTime: number;
+  endTime?: number;
+}
+
 function App() {
   const [url, setUrl] = useState('http://localhost:5173/');
   const [maxIterations, setMaxIterations] = useState<number | undefined>(undefined); // Will be loaded from config
@@ -138,6 +157,7 @@ function App() {
   const [flowNodes, setFlowNodes] = useState<Node[]>([]);
   const [flowEdges, setFlowEdges] = useState<Edge[]>([]);
   const [userStories, setUserStories] = useState<UserStoriesResult | null>(null);
+  const [currentRetry, setCurrentRetry] = useState<RetrySession | null>(null);
 
   // Convert graph data to ReactFlow format with Dagre hierarchical layout
   useEffect(() => {
@@ -409,6 +429,19 @@ function App() {
         if (currentSession) {
           loadGraph(currentSession);
         }
+      } else if (data.type === 'retry_step_update') {
+        // Handle retry step updates
+        if (currentRetry && currentRetry.retryId === data.retryId) {
+          setCurrentRetry((prev) => {
+            if (!prev) return null;
+            const updatedSteps = [...prev.steps];
+            const stepIndex = updatedSteps.findIndex((s) => s.index === data.step.index);
+            if (stepIndex >= 0) {
+              updatedSteps[stepIndex] = data.step;
+            }
+            return { ...prev, steps: updatedSteps };
+          });
+        }
       }
     };
 
@@ -645,6 +678,64 @@ function App() {
       }
     } catch (error) {
       console.error('Error stopping session:', error);
+    }
+  };
+
+  const handleRetryStory = async (storyIndex: number) => {
+    if (!currentSession) {
+      alert('No session selected');
+      return;
+    }
+
+    try {
+      const response = await fetch('http://localhost:3001/api/retry', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sessionId: currentSession,
+          storyIndex,
+          credentials: appUsername || appPassword ? {
+            username: appUsername,
+            password: appPassword,
+          } : undefined,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        addActivity(`🔄 Retry started for story ${storyIndex + 1}`);
+        
+        // Poll for retry status
+        pollRetryStatus(data.retryId);
+      } else {
+        const error = await response.json();
+        alert(`Failed to start retry: ${error.message || error.error}`);
+      }
+    } catch (error) {
+      console.error('Error starting retry:', error);
+      alert('Failed to start retry');
+    }
+  };
+
+  const pollRetryStatus = async (retryId: string) => {
+    try {
+      const response = await fetch(`http://localhost:3001/api/retry/${retryId}`);
+      
+      if (response.ok) {
+        const retrySession: RetrySession = await response.json();
+        setCurrentRetry(retrySession);
+        
+        // Continue polling if retry is still running
+        if (retrySession.status === 'running' || retrySession.status === 'pending') {
+          setTimeout(() => pollRetryStatus(retryId), 500);
+        } else {
+          addActivity(`✅ Retry ${retrySession.status} for story ${retrySession.storyIndex + 1}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error polling retry status:', error);
     }
   };
 
@@ -895,7 +986,7 @@ function App() {
                   <p style={{ margin: 0, color: '#333' }}>{userStories.summary}</p>
                 </div>
               )}
-              {userStories.stories && userStories.stories.length > 0 ? (
+                  {userStories.stories && userStories.stories.length > 0 ? (
                 <div className="user-stories-list">
                   {userStories.stories.map((story, index) => (
                     <div key={index} className="user-story-card" style={{
@@ -906,16 +997,42 @@ function App() {
                       borderRadius: '8px',
                       boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
                     }}>
-                      <h3 style={{ 
-                        marginTop: 0, 
-                        marginBottom: '0.75rem', 
-                        color: '#333',
-                        fontSize: '1.25rem',
-                        borderBottom: '2px solid #667eea',
-                        paddingBottom: '0.5rem',
+                      <div style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'flex-start',
+                        marginBottom: '0.75rem',
                       }}>
-                        {index + 1}. {story.title}
-                      </h3>
+                        <h3 style={{ 
+                          marginTop: 0, 
+                          marginBottom: 0, 
+                          color: '#333',
+                          fontSize: '1.25rem',
+                          flex: 1,
+                        }}>
+                          {index + 1}. {story.title}
+                        </h3>
+                        <button
+                          onClick={() => handleRetryStory(index)}
+                          className="btn-retry"
+                          disabled={!!currentRetry && currentRetry.status === 'running'}
+                          title="Retry this user story"
+                          style={{
+                            padding: '0.5rem 1rem',
+                            background: '#667eea',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontWeight: '600',
+                            fontSize: '0.85rem',
+                            transition: 'all 0.2s',
+                            marginLeft: '1rem',
+                          }}
+                        >
+                          🔄 Retry
+                        </button>
+                      </div>
                       {story.description && (
                         <p style={{ 
                           marginBottom: '1rem', 
@@ -1021,6 +1138,14 @@ function App() {
           </section>
         )}
       </main>
+
+      {/* Retry Progress Panel */}
+      {currentRetry && (
+        <RetryProgressPanel
+          currentRetry={currentRetry}
+          onClose={() => setCurrentRetry(null)}
+        />
+      )}
     </div>
   );
 }

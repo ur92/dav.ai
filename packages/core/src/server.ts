@@ -5,6 +5,7 @@ import { SessionService } from './services/session-service.js';
 import { GraphService } from './services/graph-service.js';
 import { ConfigService } from './services/config-service.js';
 import { UserStoryService } from './services/user-story-service.js';
+import { RetryService } from './services/retry-service.js';
 import type { DavAgentState } from './types/state.js';
 import { logger } from './utils/logger.js';
 import * as dotenv from 'dotenv';
@@ -47,6 +48,20 @@ SessionService.loadSessionsFromPersistence().catch((error) => {
   logger.error('Server', 'Failed to load sessions from persistence', {
     error: error instanceof Error ? error.message : String(error),
   });
+});
+
+// WebSocket broadcast function (will be set by frontend when available)
+let broadcastToClients: ((data: any) => void) | null = null;
+
+// Set up retry step update callback for WebSocket broadcasting
+RetryService.setStepUpdateCallback((retryId, step) => {
+  if (broadcastToClients) {
+    broadcastToClients({
+      type: 'retry_step_update',
+      retryId,
+      step,
+    });
+  }
 });
 
 const app = express();
@@ -361,6 +376,123 @@ app.get('/graph', async (req, res) => {
   }
 });
 
+// Start retry for a user story
+app.post('/retry', async (req, res) => {
+  const { sessionId, storyIndex, credentials } = req.body;
+
+  if (!sessionId || storyIndex === undefined) {
+    return res.status(400).json({ error: 'sessionId and storyIndex are required' });
+  }
+
+  try {
+    // Get session to retrieve user stories
+    const session = SessionService.getSession(sessionId);
+    
+    if (!session) {
+      // Try loading from persistence
+      const tools = SessionService.getPersistenceTools();
+      const metadata = await tools.loadSessionMetadata(sessionId);
+      
+      if (!metadata) {
+        return res.status(404).json({ error: 'Session not found' });
+      }
+      
+      // Load user stories
+      const userStories = await tools.loadUserStories(sessionId);
+      
+      if (!userStories || !userStories.stories || !userStories.stories[storyIndex]) {
+        return res.status(404).json({ error: 'User story not found' });
+      }
+      
+      const story = userStories.stories[storyIndex];
+      
+      // Use provided credentials or fall back to config credentials
+      const finalCredentials = credentials ?? ConfigService.getCredentials();
+      
+      const retryId = await RetryService.startRetry(sessionId, story, storyIndex, finalCredentials);
+      
+      res.json({
+        retryId,
+        status: 'started',
+        message: 'Retry started',
+      });
+    } else {
+      // Session in memory
+      const userStories = (session as any).userStories;
+      
+      if (!userStories || !userStories.stories || !userStories.stories[storyIndex]) {
+        return res.status(404).json({ error: 'User story not found' });
+      }
+      
+      const story = userStories.stories[storyIndex];
+      
+      // Use provided credentials or fall back to config credentials
+      const finalCredentials = credentials ?? ConfigService.getCredentials();
+      
+      const retryId = await RetryService.startRetry(sessionId, story, storyIndex, finalCredentials);
+      
+      res.json({
+        retryId,
+        status: 'started',
+        message: 'Retry started',
+      });
+    }
+  } catch (error) {
+    logger.error('Server', 'Error starting retry', {
+      sessionId,
+      storyIndex,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({
+      error: 'Failed to start retry',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// Get retry status
+app.get('/retry/:retryId', async (req, res) => {
+  const { retryId } = req.params;
+
+  try {
+    const retrySession = RetryService.getRetrySession(retryId);
+    
+    if (!retrySession) {
+      return res.status(404).json({ error: 'Retry session not found' });
+    }
+    
+    res.json(retrySession);
+  } catch (error) {
+    logger.error('Server', 'Error getting retry status', {
+      retryId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({
+      error: 'Failed to get retry status',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// Get all retries for a session
+app.get('/session/:sessionId/retries', async (req, res) => {
+  const { sessionId } = req.params;
+
+  try {
+    const retries = RetryService.getRetrySessionsBySessionId(sessionId);
+    res.json({ retries });
+  } catch (error) {
+    logger.error('Server', 'Error getting retries for session', {
+      sessionId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({
+      error: 'Failed to get retries',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 export function startServer(port: number = 3000) {
   app.listen(port, () => {
     const config = ConfigService.getConfig();
@@ -382,6 +514,11 @@ export function startServer(port: number = 3000) {
       startingUrl: config.startingUrl,
     });
   });
+}
+
+// Export function to set broadcast callback from frontend
+export function setBroadcastFunction(fn: (data: any) => void) {
+  broadcastToClients = fn;
 }
 
 // Run server if this is the main module

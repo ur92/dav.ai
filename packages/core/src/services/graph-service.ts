@@ -82,6 +82,9 @@ export class GraphService {
       });
 
       const edges: GraphEdge[] = [];
+      // Use a Set to track unique edges by composite key (source, target, label, selector)
+      const edgeKeys = new Set<string>();
+      
       edgeResult.records.forEach((record: any) => {
         const node = record.get('n');
         const rel = record.get('r');
@@ -106,12 +109,24 @@ export class GraphService {
             });
           }
 
-          edges.push({
-            source: node.properties.url,
-            target: target.properties.url,
-            label: rel.properties.action || 'action',
-            selector: rel.properties.selector,
-          });
+          const source = node.properties.url;
+          const targetUrl = target.properties.url;
+          const label = rel.properties.action || 'action';
+          const selector = rel.properties.selector || '';
+          
+          // Create a unique key for this edge
+          const edgeKey = `${source}|${targetUrl}|${label}|${selector}`;
+          
+          // Only add edge if we haven't seen this exact edge before
+          if (!edgeKeys.has(edgeKey)) {
+            edgeKeys.add(edgeKey);
+            edges.push({
+              source,
+              target: targetUrl,
+              label,
+              selector,
+            });
+          }
         }
       });
 

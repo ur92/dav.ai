@@ -68,7 +68,7 @@ export class BrowserTools {
     const simplifiedElements = await this.page.evaluate(() => {
       const elements: SimplifiedElement[] = [];
 
-      // Query for all actionable elements
+      // Query for all actionable elements and content elements
       const selectors = [
         'a[href]',
         'button',
@@ -78,6 +78,14 @@ export class BrowserTools {
         '[role="link"]',
         'select',
         '[onclick]',
+        'p',
+        'span',
+        'h1',
+        'h2',
+        'h3',
+        'h4',
+        'h5',
+        'h6',
       ];
 
       selectors.forEach((selector) => {

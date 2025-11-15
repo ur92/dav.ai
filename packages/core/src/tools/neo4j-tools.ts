@@ -55,7 +55,8 @@ export class Neo4jTools {
   }
 
   /**
-   * Generate Cypher query to create a TRANSITIONED_BY relationship with sessionId
+   * Generate Cypher query to merge a TRANSITIONED_BY relationship with sessionId
+   * Uses MERGE instead of CREATE to prevent duplicate edges for the same transition
    */
   static generateTransitionQuery(
     fromUrl: string,
@@ -70,18 +71,64 @@ export class Neo4jTools {
     const safeSessionId = sessionId.replace(/'/g, "\\'");
     const safeSelector = selector ? selector.replace(/'/g, "\\'") : '';
 
-    let query = `MATCH (a:State {url: '${safeFromUrl}', sessionId: '${safeSessionId}'})
-                 MATCH (b:State {url: '${safeToUrl}', sessionId: '${safeSessionId}'})
-                 CREATE (a)-[r:TRANSITIONED_BY {action: '${safeAction}', sessionId: '${safeSessionId}'`;
-
+    // Build the relationship properties for matching
+    let matchProps = `action: '${safeAction}', sessionId: '${safeSessionId}'`;
     if (safeSelector) {
-      query += `, selector: '${safeSelector}'`;
+      matchProps += `, selector: '${safeSelector}'`;
     }
 
-    query += `, timestamp: datetime()}]->(b)
-              RETURN r`;
+    let query = `MATCH (a:State {url: '${safeFromUrl}', sessionId: '${safeSessionId}'})
+                 MATCH (b:State {url: '${safeToUrl}', sessionId: '${safeSessionId}'})
+                 MERGE (a)-[r:TRANSITIONED_BY {${matchProps}}]->(b)
+                 ON CREATE SET r.timestamp = datetime()
+                 ON MATCH SET r.timestamp = datetime()
+                 RETURN r`;
 
     return query;
+  }
+
+  /**
+   * Check if a transition already exists between two states
+   * Returns true if the transition exists, false otherwise
+   */
+  async transitionExists(
+    fromUrl: string,
+    toUrl: string,
+    action: string,
+    sessionId: string,
+    selector?: string
+  ): Promise<boolean> {
+    const session = this.driver.session();
+    
+    try {
+      const safeFromUrl = fromUrl.replace(/'/g, "\\'");
+      const safeToUrl = toUrl.replace(/'/g, "\\'");
+      const safeAction = action.replace(/'/g, "\\'");
+      const safeSessionId = sessionId.replace(/'/g, "\\'");
+      const safeSelector = selector ? selector.replace(/'/g, "\\'") : '';
+
+      // Build the relationship properties for matching
+      let matchProps = `action: '${safeAction}', sessionId: '${safeSessionId}'`;
+      if (safeSelector) {
+        matchProps += `, selector: '${safeSelector}'`;
+      }
+
+      const query = `MATCH (a:State {url: '${safeFromUrl}', sessionId: '${safeSessionId}'})
+                     MATCH (b:State {url: '${safeToUrl}', sessionId: '${safeSessionId}'})
+                     MATCH (a)-[r:TRANSITIONED_BY {${matchProps}}]->(b)
+                     RETURN r LIMIT 1`;
+
+      const result = await session.run(query);
+      return result.records.length > 0;
+    } catch (error) {
+      logger.error('Neo4j', 'Error checking if transition exists', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // If there's an error, assume transition doesn't exist to be safe
+      return false;
+    } finally {
+      await session.close();
+    }
   }
 
   /**

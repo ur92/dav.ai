@@ -21,6 +21,7 @@ export class DavAgent {
   private credentials?: { username?: string; password?: string };
   private loginAttempted: Set<string> = new Set(); // Track URLs where login was attempted
   private loginSuccessful: boolean = false; // Track if login was successful
+  private executedTransitions: Set<string> = new Set(); // Track executed transitions to avoid duplicates
   private onDecisionCallback?: (decision: string) => void; // Callback for emitting decisions to frontend
 
   constructor(
@@ -556,6 +557,37 @@ Be concise and focus on exploring new paths. Batch related actions together when
       const fromUrl = state.currentUrl;
       this.previousUrl = fromUrl;
 
+      // Build action description for checking duplicates
+      const actionDescriptions = actionsToExecute.map(a => {
+        if (a.tool === 'clickElement') return `${a.tool} on ${a.selector}`;
+        if (a.tool === 'typeText') return `${a.tool} on ${a.selector} with text "${a.text}"`;
+        if (a.tool === 'selectOption') return `${a.tool} on ${a.selector} with value "${a.value}"`;
+        if (a.tool === 'navigate') return `${a.tool} to ${a.url}`;
+        return a.tool;
+      });
+      const batchDescription = actionsToExecute.length > 1
+        ? `Batch: ${actionDescriptions.join(' → ')}`
+        : actionDescriptions[0];
+
+      // Create a unique key for this transition attempt (fromUrl + action description + selector)
+      const transitionKey = `${fromUrl}|||${batchDescription}|||${actionsToExecute[0]?.selector || ''}`;
+      
+      // Check if we've already executed this exact transition in this session
+      if (this.executedTransitions.has(transitionKey)) {
+        logger.info('EXECUTE', `Skipping duplicate transition: ${fromUrl} -> [${batchDescription}]`);
+        this.emitDecision(`⏭️ Skipping duplicate action sequence`);
+        
+        // Still need to observe the current state to continue exploration
+        const currentObservation = await this.browserTools.observe();
+        return {
+          currentUrl: currentObservation.currentUrl,
+          actionHistory: [`[EXECUTE] Skipped duplicate transition: ${batchDescription} from ${fromUrl}`],
+          explorationStatus: 'CONTINUE',
+          pendingActions: [],
+          pendingAction: null,
+        };
+      }
+
       logger.info('EXECUTE', `Executing ${actionsToExecute.length} action(s) in batch...`);
       this.emitDecision(`⚙️ Executing ${actionsToExecute.length} action(s) in batch...`);
 
@@ -642,6 +674,27 @@ Be concise and focus on exploring new paths. Batch related actions together when
       const newObservation = await this.browserTools.observe();
       this.emitDecision(`📊 Page state captured (fingerprint: ${newObservation.fingerprint.substring(0, 8)}...)`);
 
+      // Mark this transition as executed
+      this.executedTransitions.add(transitionKey);
+      
+      // Also create a key with the final URL for future reference
+      const finalTransitionKey = `${fromUrl}|||${batchDescription}|||${actionsToExecute[0]?.selector || ''}|||${finalUrl}`;
+      this.executedTransitions.add(finalTransitionKey);
+
+      // Check if this transition already exists in the database before persisting
+      const transitionAlreadyExists = await this.neo4jTools.transitionExists(
+        fromUrl,
+        finalUrl,
+        batchDescription,
+        this.sessionId,
+        actionsToExecute[0]?.selector
+      );
+
+      if (transitionAlreadyExists) {
+        logger.info('EXECUTE', `Transition already exists in database: ${fromUrl} -> ${finalUrl} with action "${batchDescription}". MERGE will handle duplicate.`);
+        this.emitDecision(`⚠️ This transition already exists in the graph database`);
+      }
+
       // Merge the "from" state
       queries.push(Neo4jTools.generateMergeStateQuery(fromUrl, 'temp', this.sessionId));
 
@@ -649,16 +702,19 @@ Be concise and focus on exploring new paths. Batch related actions together when
       queries.push(Neo4jTools.generateMergeStateQuery(finalUrl, newObservation.fingerprint, this.sessionId));
 
       // Create a single transition relationship representing the batch of actions
-      const batchDescription = actionsToExecute.length > 1
-        ? `Batch: ${executedActions.join(' → ')}`
-        : executedActions[0];
-      
+      // MERGE will handle duplicates gracefully
       queries.push(
         Neo4jTools.generateTransitionQuery(fromUrl, finalUrl, batchDescription, this.sessionId, actionsToExecute[0]?.selector)
       );
 
-      this.emitDecision(`💾 Prepared ${queries.length} Neo4j queries for state transition`);
-      const historyEntry = `[EXECUTE] Batch executed: ${executedActions.join(' → ')}. Transitioned from ${fromUrl} to ${finalUrl}.`;
+      if (!transitionAlreadyExists) {
+        this.emitDecision(`💾 Prepared ${queries.length} Neo4j queries for state transition`);
+      } else {
+        this.emitDecision(`💾 Prepared ${queries.length} Neo4j queries (MERGE will skip duplicate)`);
+      }
+      const historyEntry = transitionAlreadyExists
+        ? `[EXECUTE] Batch executed: ${executedActions.join(' → ')}. Transitioned from ${fromUrl} to ${finalUrl}. [DUPLICATE TRANSITION - SKIPPED]`
+        : `[EXECUTE] Batch executed: ${executedActions.join(' → ')}. Transitioned from ${fromUrl} to ${finalUrl}.`;
 
       return {
         currentUrl: finalUrl,

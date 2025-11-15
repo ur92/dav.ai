@@ -20,6 +20,7 @@ export class DavAgent {
   private sessionId: string;
   private credentials?: { username?: string; password?: string };
   private loginAttempted: Set<string> = new Set(); // Track URLs where login was attempted
+  private loginSuccessful: boolean = false; // Track if login was successful
   private onDecisionCallback?: (decision: string) => void; // Callback for emitting decisions to frontend
 
   constructor(
@@ -166,7 +167,17 @@ export class DavAgent {
       
       // Check if this is a login screen and we have credentials
       const isLoginScreen = this.detectLoginScreen(observation.domState);
-      if (isLoginScreen && this.credentials?.username && this.credentials?.password && !this.loginAttempted.has(observation.currentUrl)) {
+      
+      // If we previously attempted login and we're no longer on a login screen, login was successful
+      if (this.loginAttempted.size > 0 && !isLoginScreen && !this.loginSuccessful) {
+        this.loginSuccessful = true;
+        // Clear credentials to prevent further login attempts
+        this.credentials = undefined;
+        logger.info('OBSERVE', 'Login successful - credentials disabled to prevent reuse');
+        this.emitDecision('✅ Login successful - credentials disabled');
+      }
+      
+      if (isLoginScreen && this.credentials?.username && this.credentials?.password && !this.loginAttempted.has(observation.currentUrl) && !this.loginSuccessful) {
         historyEntry += ' [LOGIN DETECTED - Will use credentials]';
         logger.info('OBSERVE', 'Login screen detected, credentials available');
         this.emitDecision('🔐 Login form detected - Credentials available for auto-login');
@@ -210,30 +221,13 @@ export class DavAgent {
    */
   private detectLoginScreen(domState: string): boolean {
     const lowerDom = domState.toLowerCase();
-    
-    // First, check for exclusion patterns in headers (h1, h2, h3, etc.)
-    // These indicate it's NOT a login screen
-    const exclusionPatterns = [
-      /<h[1-6][^>]*>.*?(?:create|new user|sign up|register|signup).*?<\/h[1-6]>/i,
-    ];
-    
-    const hasExclusionPattern = exclusionPatterns.some(pattern => pattern.test(domState));
-    if (hasExclusionPattern) {
-      return false;
-    }
-    
-    // Check for login-related text in headers (h1, h2, h3, etc.)
-    const headerLoginPatterns = [
-      /<h[1-6][^>]*>.*?(?:login|sign in|sign-in).*?<\/h[1-6]>/i,
-    ];
-    
-    const hasLoginHeader = headerLoginPatterns.some(pattern => pattern.test(domState));
-    
     // Look for common login indicators
     const loginIndicators = [
       'type="password"',
       'password',
       'username',
+      'login',
+      'sign in',
       'autocomplete="username"',
       'autocomplete="current-password"',
       'id="username"',
@@ -245,8 +239,8 @@ export class DavAgent {
     // Count how many indicators we find
     const foundIndicators = loginIndicators.filter(indicator => lowerDom.includes(indicator)).length;
     
-    // Require both: login header AND at least 2 login indicators (e.g., password field + username field)
-    return hasLoginHeader && foundIndicators >= 2;
+    // If we find at least 2 indicators (e.g., password field + username field), it's likely a login screen
+    return foundIndicators >= 2;
   }
 
   /**
@@ -335,7 +329,8 @@ export class DavAgent {
       const shouldAutoLogin = isLoginScreen && 
                               this.credentials?.username && 
                               this.credentials?.password && 
-                              !this.loginAttempted.has(state.currentUrl);
+                              !this.loginAttempted.has(state.currentUrl) &&
+                              !this.loginSuccessful; // Don't attempt login if already successfully logged in
 
       if (shouldAutoLogin) {
         logger.info('DECIDE', 'Login screen detected with credentials available - will guide LLM to login');
@@ -390,7 +385,7 @@ export class DavAgent {
         this.emitDecision('🤖 Decision: Analyzing page with LLM to determine next action...');
       }
 
-      const credentialsHint = this.credentials?.username && this.credentials?.password
+      const credentialsHint = this.credentials?.username && this.credentials?.password && !this.loginSuccessful
         ? `\n\n🔐 CREDENTIALS AVAILABLE FOR LOGIN:
 If you see a login form (username and password input fields), you can return MULTIPLE actions in an array:
 [

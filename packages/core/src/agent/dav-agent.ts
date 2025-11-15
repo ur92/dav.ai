@@ -210,13 +210,30 @@ export class DavAgent {
    */
   private detectLoginScreen(domState: string): boolean {
     const lowerDom = domState.toLowerCase();
+    
+    // First, check for exclusion patterns in headers (h1, h2, h3, etc.)
+    // These indicate it's NOT a login screen
+    const exclusionPatterns = [
+      /<h[1-6][^>]*>.*?(?:create|new user|sign up|register|signup).*?<\/h[1-6]>/i,
+    ];
+    
+    const hasExclusionPattern = exclusionPatterns.some(pattern => pattern.test(domState));
+    if (hasExclusionPattern) {
+      return false;
+    }
+    
+    // Check for login-related text in headers (h1, h2, h3, etc.)
+    const headerLoginPatterns = [
+      /<h[1-6][^>]*>.*?(?:login|sign in|sign-in).*?<\/h[1-6]>/i,
+    ];
+    
+    const hasLoginHeader = headerLoginPatterns.some(pattern => pattern.test(domState));
+    
     // Look for common login indicators
     const loginIndicators = [
       'type="password"',
       'password',
       'username',
-      'login',
-      'sign in',
       'autocomplete="username"',
       'autocomplete="current-password"',
       'id="username"',
@@ -228,8 +245,8 @@ export class DavAgent {
     // Count how many indicators we find
     const foundIndicators = loginIndicators.filter(indicator => lowerDom.includes(indicator)).length;
     
-    // If we find at least 2 indicators (e.g., password field + username field), it's likely a login screen
-    return foundIndicators >= 2;
+    // Require both: login header AND at least 2 login indicators (e.g., password field + username field)
+    return hasLoginHeader && foundIndicators >= 2;
   }
 
   /**

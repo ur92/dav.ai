@@ -59,7 +59,7 @@ export function Login() {
               autoComplete="current-password"
             />
           </div>
-          {error && <div className="error-message">{error}</div>}
+          {error && <p className="error-message">{error}</p>}
           <button type="submit" className="login-button">
             Login
           </button>

@@ -69,8 +69,8 @@ export function UserCreate() {
               autoComplete="new-password"
             />
           </div>
-          {error && <div className="error-message">{error}</div>}
-          {success && <div className="success-message">User created successfully! Redirecting...</div>}
+          {error && <p className="error-message">{error}</p>}
+          {success && <p className="success-message">User created successfully! Redirecting...</p>}
           <button type="submit" className="create-button">
             Create User
           </button>

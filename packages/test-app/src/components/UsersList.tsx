@@ -6,6 +6,7 @@ import './UsersList.css';
 export function UsersList() {
   const navigate = useNavigate();
   const [users, setUsers] = useState<User[]>([]);
+  const [successMessage, setSuccessMessage] = useState<string>('');
 
   useEffect(() => {
     loadUsers();
@@ -16,10 +17,9 @@ export function UsersList() {
   };
 
   const handleDeleteUser = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this user?')) {
-      deleteUser(id);
-      loadUsers();
-    }
+    deleteUser(id);
+    loadUsers();
+    setSuccessMessage('User deleted successfully');
   };
 
   const handleLogout = () => {
@@ -69,6 +69,7 @@ export function UsersList() {
           )}
         </div>
       </div>
+      {successMessage && <p className="success-message">{successMessage}</p>}
     </div>
   );
 }

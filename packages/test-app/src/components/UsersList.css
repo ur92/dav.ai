@@ -109,6 +109,19 @@
   font-size: 14px;
 }
 
+.success-message {
+  color: #27ae60;
+  margin-top: 20px;
+  padding: 10px;
+  background: #d4edda;
+  border-radius: 6px;
+  font-size: 14px;
+  text-align: center;
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .add-button {
   width: 100%;
   padding: 12px;

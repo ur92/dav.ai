@@ -16,7 +16,210 @@ import 'reactflow/dist/style.css';
 import './App.css';
 import RetryProgressPanel from './RetryProgressPanel';
 
-// Custom edge component for self-loops
+// Action type configuration for better edge styling
+interface ActionTypeConfig {
+  color: string;
+  strokeWidth: number;
+  strokeDasharray?: string;
+  icon: string;
+  labelColor: string;
+}
+
+const ACTION_TYPE_CONFIGS: Record<string, ActionTypeConfig> = {
+  click: {
+    color: '#3b82f6', // Blue
+    strokeWidth: 2.5,
+    icon: '👆',
+    labelColor: '#1e40af',
+  },
+  type: {
+    color: '#10b981', // Green
+    strokeWidth: 2.5,
+    icon: '⌨️',
+    labelColor: '#065f46',
+  },
+  select: {
+    color: '#8b5cf6', // Purple
+    strokeWidth: 2.5,
+    icon: '📋',
+    labelColor: '#5b21b6',
+  },
+  navigate: {
+    color: '#f59e0b', // Amber
+    strokeWidth: 2.5,
+    strokeDasharray: '8,4',
+    icon: '🧭',
+    labelColor: '#92400e',
+  },
+  action: {
+    color: '#667eea', // Default purple
+    strokeWidth: 2,
+    icon: '⚡',
+    labelColor: '#4c1d95',
+  },
+};
+
+function getActionTypeConfig(label: string): ActionTypeConfig {
+  const lowerLabel = label.toLowerCase();
+  if (lowerLabel.includes('click')) return ACTION_TYPE_CONFIGS.click;
+  if (lowerLabel.includes('type')) return ACTION_TYPE_CONFIGS.type;
+  if (lowerLabel.includes('select')) return ACTION_TYPE_CONFIGS.select;
+  if (lowerLabel.includes('navigate')) return ACTION_TYPE_CONFIGS.navigate;
+  return ACTION_TYPE_CONFIGS.action;
+}
+
+// Custom edge component for transition edges with enhanced styling
+function TransitionEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style = {},
+  markerEnd,
+  label,
+  labelStyle,
+  data,
+}: EdgeProps) {
+  const [isHovered, setIsHovered] = useState(false);
+  const fullLabel = (data as any)?.fullLabel || label;
+  const actionConfig = (data as any)?.actionConfig || ACTION_TYPE_CONFIGS.action;
+  
+  const [edgePath, labelX, labelY] = useMemo(() => {
+    return getSmoothStepPath({
+      sourceX,
+      sourceY,
+      targetX,
+      targetY,
+      sourcePosition,
+      targetPosition,
+    });
+  }, [sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition]);
+
+  const displayLabel = typeof label === 'string' ? label : '';
+  const shortLabel = displayLabel.length > 15 ? `${displayLabel.substring(0, 12)}...` : displayLabel;
+
+  return (
+    <g>
+      {/* Invisible wider path for easier hover interaction on the edge */}
+      <path
+        d={edgePath}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={30}
+        style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      />
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        markerEnd={markerEnd}
+        style={{
+          ...style,
+          stroke: actionConfig.color,
+          strokeWidth: isHovered ? actionConfig.strokeWidth + 0.5 : actionConfig.strokeWidth,
+          strokeDasharray: actionConfig.strokeDasharray,
+          opacity: isHovered ? 1 : 0.85,
+          transition: 'all 0.2s ease',
+          cursor: 'pointer',
+        }}
+      />
+      {label && (
+        <g>
+          {/* Calculate label dimensions */}
+          {(() => {
+            const labelWidth = shortLabel.length * 5.5 + 32; // Account for icon and padding
+            const labelHeight = 24;
+            const labelStartX = labelX - labelWidth / 2;
+            const labelStartY = labelY - labelHeight / 2;
+            
+            return (
+              <>
+                {/* Label background with better styling - also a hover target */}
+                <rect
+                  x={labelStartX}
+                  y={labelStartY}
+                  width={labelWidth}
+                  height={labelHeight}
+                  rx={6}
+                  fill={isHovered ? 'rgba(255, 255, 255, 0.98)' : 'rgba(255, 255, 255, 0.95)'}
+                  stroke={actionConfig.color}
+                  strokeWidth={isHovered ? 2 : 1.5}
+                  style={{ transition: 'all 0.2s ease', cursor: 'pointer' }}
+                  onMouseEnter={() => setIsHovered(true)}
+                  onMouseLeave={() => setIsHovered(false)}
+                />
+                {/* Icon */}
+                <text
+                  x={labelStartX + 12}
+                  y={labelY + 2}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  style={{ fontSize: '12px', cursor: 'pointer', pointerEvents: 'none' }}
+                >
+                  {actionConfig.icon}
+                </text>
+                {/* Label text */}
+                <text
+                  x={labelStartX + 28}
+                  y={labelY + 2}
+                  textAnchor="start"
+                  dominantBaseline="middle"
+                  style={{
+                    ...labelStyle,
+                    fill: actionConfig.labelColor,
+                    fontWeight: isHovered ? 600 : 500,
+                    fontSize: '11px',
+                    transition: 'all 0.2s ease',
+                    cursor: 'pointer',
+                    pointerEvents: 'none',
+                  }}
+                  className="react-flow__edge-text"
+                >
+                  {shortLabel}
+                </text>
+                {/* Hover tooltip with full label - shows when hovering edge or label */}
+                {isHovered && fullLabel && (
+                  <g style={{ pointerEvents: 'none' }}>
+                    <rect
+                      x={labelX - (fullLabel.length * 3.5)}
+                      y={labelY - 40}
+                      width={fullLabel.length * 7 + 16}
+                      height={22}
+                      rx={4}
+                      fill="rgba(0, 0, 0, 0.9)"
+                      stroke={actionConfig.color}
+                      strokeWidth={1.5}
+                    />
+                    <text
+                      x={labelX}
+                      y={labelY - 27}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      style={{
+                        fill: 'white',
+                        fontSize: '11px',
+                        fontWeight: 500,
+                        pointerEvents: 'none',
+                      }}
+                    >
+                      {fullLabel}
+                    </text>
+                  </g>
+                )}
+              </>
+            );
+          })()}
+        </g>
+      )}
+    </g>
+  );
+}
+
+// Custom edge component for self-loops with enhanced styling
 function SelfLoopEdge({
   id,
   sourceX,
@@ -31,63 +234,184 @@ function SelfLoopEdge({
   labelStyle,
   data,
 }: EdgeProps) {
-  // Create a curved path for self-loops
+  const [isHovered, setIsHovered] = useState(false);
+  const fullLabel = (data as any)?.fullLabel || label;
+  const actionConfig = (data as any)?.actionConfig || ACTION_TYPE_CONFIGS.action;
   const offset = (data as any)?.offset || 60;
   const radius = offset;
   
-  const [edgePath, labelX, labelY] = useMemo(() => {
-    // Create a semi-circular loop above the node
-    const controlPointY = sourceY - radius;
-    const endX = sourceX;
-    const endY = sourceY;
+  const [edgePath, labelX, labelY, hoverPath] = useMemo(() => {
+    // Create a proper circular/elliptical loop on the side of the node
+    const loopIndex = (data as any)?.loopIndex || 0;
+    const nodeWidth = 250; // Approximate node width
+    const nodeHeight = 100; // Approximate node height
     
-    // Use quadratic bezier for smooth loop
-    const path = `M ${sourceX} ${sourceY} 
-                  Q ${sourceX + radius * 0.6} ${sourceY - radius * 0.4} ${sourceX} ${controlPointY}
-                  Q ${sourceX - radius * 0.6} ${sourceY - radius * 0.4} ${endX} ${endY}`;
+    // Position loops on the right side of the node, offset vertically for multiple loops
+    // Center the first loop vertically, then offset others above/below
+    let verticalOffset = 0;
+    if (loopIndex > 0) {
+      // Alternate above and below: 1st extra = +30, 2nd extra = -30, 3rd = +60, 4th = -60, etc.
+      const offsetDirection = loopIndex % 2 === 1 ? 1 : -1;
+      const offsetAmount = Math.ceil(loopIndex / 2) * 30;
+      verticalOffset = offsetDirection * offsetAmount;
+    }
     
-    return [path, sourceX, controlPointY - 15];
-  }, [sourceX, sourceY, radius]);
+    // Create a proper circular loop path on the right side
+    // Start from right-center of node, go right and around in a circle, end back at right-center
+    const startX = sourceX + nodeWidth / 2;
+    const startY = sourceY + verticalOffset; // sourceY is the vertical center of the node
+    const rightX = startX + radius;
+    const centerY = sourceY + verticalOffset;
+    
+    // Create a smooth circular loop using cubic bezier curves
+    // The loop goes: start (right-center) -> right and up -> right -> right and down -> back to start
+    // Use control points to create a nice circular arc
+    const topControlX = startX + radius * 0.55;
+    const topControlY = startY - radius * 0.45;
+    const rightTopX = rightX;
+    const rightTopY = centerY - radius * 0.4;
+    
+    const rightBottomX = rightX;
+    const rightBottomY = centerY + radius * 0.4;
+    const bottomControlX = startX + radius * 0.55;
+    const bottomControlY = startY + radius * 0.45;
+    
+    // Create a smooth closed loop using cubic bezier curves
+    // Path: start -> curve right-up -> right -> curve right-down -> back to start
+    const path = `M ${startX} ${startY} 
+                  C ${topControlX} ${topControlY}, ${rightTopX} ${rightTopY}, ${rightX} ${centerY}
+                  C ${rightBottomX} ${rightBottomY}, ${bottomControlX} ${bottomControlY}, ${startX} ${startY} Z`;
+    
+    // Create a wider hover path for easier interaction (same path, just for hover detection)
+    const hoverPath = path;
+    
+    // Label position at the right side of the loop
+    return [path, rightX + 15, centerY, hoverPath];
+  }, [sourceX, sourceY, radius, data]);
+
+  const displayLabel = typeof label === 'string' ? label : '';
+  const shortLabel = displayLabel.length > 15 ? `${displayLabel.substring(0, 12)}...` : displayLabel;
 
   return (
-    <>
+    <g>
+      {/* Invisible wider path for easier hover interaction on the edge */}
+      <path
+        d={hoverPath}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={30}
+        style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      />
       <BaseEdge
         id={id}
         path={edgePath}
         markerEnd={markerEnd}
-        style={style}
+        style={{
+          ...style,
+          stroke: actionConfig.color,
+          strokeWidth: isHovered ? actionConfig.strokeWidth + 0.5 : actionConfig.strokeWidth,
+          strokeDasharray: actionConfig.strokeDasharray || style.strokeDasharray,
+          opacity: isHovered ? 1 : 0.85,
+          transition: 'all 0.2s ease',
+          cursor: 'pointer',
+        }}
       />
       {label && (
         <g>
-          {typeof label === 'string' && (
-            <rect
-              x={labelX - (label.length * 3.5)}
-              y={labelY - 8}
-              width={label.length * 7}
-              height={16}
-              rx={4}
-              fill="rgba(255, 255, 255, 0.95)"
-              stroke={style.stroke || '#f59e0b'}
-              strokeWidth={1}
-            />
-          )}
-          <text
-            x={labelX}
-            y={labelY}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            style={labelStyle}
-            className="react-flow__edge-text"
-          >
-            {label}
-          </text>
+          {/* Calculate label dimensions */}
+          {(() => {
+            const labelWidth = shortLabel.length * 5.5 + 32;
+            const labelHeight = 24;
+            const labelStartX = labelX - labelWidth / 2;
+            const labelStartY = labelY - labelHeight / 2;
+            
+            return (
+              <>
+                {/* Label background with better styling - also a hover target */}
+                <rect
+                  x={labelStartX}
+                  y={labelStartY}
+                  width={labelWidth}
+                  height={labelHeight}
+                  rx={6}
+                  fill={isHovered ? 'rgba(255, 255, 255, 0.98)' : 'rgba(255, 255, 255, 0.95)'}
+                  stroke={actionConfig.color}
+                  strokeWidth={isHovered ? 2 : 1.5}
+                  style={{ transition: 'all 0.2s ease', cursor: 'pointer' }}
+                  onMouseEnter={() => setIsHovered(true)}
+                  onMouseLeave={() => setIsHovered(false)}
+                />
+                {/* Icon */}
+                <text
+                  x={labelStartX + 12}
+                  y={labelY + 2}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  style={{ fontSize: '12px', cursor: 'pointer', pointerEvents: 'none' }}
+                >
+                  {actionConfig.icon}
+                </text>
+                {/* Label text */}
+                <text
+                  x={labelStartX + 28}
+                  y={labelY + 2}
+                  textAnchor="start"
+                  dominantBaseline="middle"
+                  style={{
+                    ...labelStyle,
+                    fill: actionConfig.labelColor,
+                    fontWeight: isHovered ? 600 : 500,
+                    fontSize: '11px',
+                    transition: 'all 0.2s ease',
+                    cursor: 'pointer',
+                    pointerEvents: 'none',
+                  }}
+                  className="react-flow__edge-text"
+                >
+                  {shortLabel}
+                </text>
+                {/* Hover tooltip with full label - shows when hovering edge or label */}
+                {isHovered && fullLabel && (
+                  <g style={{ pointerEvents: 'none' }}>
+                    <rect
+                      x={labelX - (fullLabel.length * 3.5)}
+                      y={labelY - 40}
+                      width={fullLabel.length * 7 + 16}
+                      height={22}
+                      rx={4}
+                      fill="rgba(0, 0, 0, 0.9)"
+                      stroke={actionConfig.color}
+                      strokeWidth={1.5}
+                    />
+                    <text
+                      x={labelX}
+                      y={labelY - 27}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      style={{
+                        fill: 'white',
+                        fontSize: '11px',
+                        fontWeight: 500,
+                        pointerEvents: 'none',
+                      }}
+                    >
+                      {fullLabel}
+                    </text>
+                  </g>
+                )}
+              </>
+            );
+          })()}
         </g>
       )}
-    </>
+    </g>
   );
 }
 
 const edgeTypes: EdgeTypes = {
+  transition: TransitionEdge,
   selfloop: SelfLoopEdge,
 };
 
@@ -291,80 +615,99 @@ function App() {
       // Create ReactFlow edges
       const edges: Edge[] = [];
       
-      // Add regular edges with simplified labels
+      // Add regular edges with enhanced styling
       regularEdges.forEach((edge, index) => {
         // Extract action type from label
-        const label = edge.label || 'action';
-        let actionType = 'action';
-        if (label.toLowerCase().includes('click')) actionType = 'click';
-        else if (label.toLowerCase().includes('type')) actionType = 'type';
-        else if (label.toLowerCase().includes('select')) actionType = 'select';
-        else if (label.toLowerCase().includes('navigate')) actionType = 'navigate';
+        const fullLabel = edge.label || 'action';
+        const actionConfig = getActionTypeConfig(fullLabel);
+        
+        // Create a shorter label for display
+        let shortLabel = fullLabel;
+        if (fullLabel.length > 15) {
+          shortLabel = fullLabel.substring(0, 12) + '...';
+        }
         
         edges.push({
           id: `e-${edge.source}-${edge.target}-${index}`,
           source: edge.source,
           target: edge.target,
-          type: 'smoothstep',
+          type: 'transition',
           animated: false,
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            color: '#667eea',
-            width: 20,
-            height: 20,
+            color: actionConfig.color,
+            width: 22,
+            height: 22,
           },
           style: {
-            stroke: '#667eea',
-            strokeWidth: 1.5,
-            opacity: 0.7,
+            stroke: actionConfig.color,
+            strokeWidth: actionConfig.strokeWidth,
+            strokeDasharray: actionConfig.strokeDasharray,
+            opacity: 0.85,
           },
-          label: actionType,
+          label: shortLabel,
           labelStyle: {
-            fill: '#667eea',
+            fill: actionConfig.labelColor,
             fontWeight: 500,
-            fontSize: '10px',
-            background: 'rgba(255, 255, 255, 0.9)',
-            padding: '2px 6px',
-            borderRadius: '4px',
+            fontSize: '11px',
           },
-          labelShowBg: true,
+          labelShowBg: false, // We handle background in custom component
+          data: {
+            fullLabel: fullLabel,
+            actionConfig: actionConfig,
+          },
         });
       });
 
-      // Add aggregated self-loop indicator per node
+      // Add individual self-loop edges for each action
       selfLoopsByNode.forEach((loops, nodeId) => {
-        if (loops.length > 0) {
+        loops.forEach((loop, loopIndex) => {
+          const fullLabel = loop.label || 'self-loop';
+          const actionConfig = getActionTypeConfig(fullLabel);
+          
+          // Create a shorter label for display
+          let shortLabel = fullLabel;
+          if (fullLabel.length > 15) {
+            shortLabel = fullLabel.substring(0, 12) + '...';
+          }
+          
+          // Offset each self-loop to avoid overlap
+          // First loop at 60px, subsequent loops at 60 + (index * 40)px
+          const offset = 60 + (loopIndex * 40);
+          
           edges.push({
-            id: `selfloop-${nodeId}`,
+            id: `selfloop-${nodeId}-${loopIndex}`,
             source: nodeId,
             target: nodeId,
             type: 'selfloop',
             animated: false,
             markerEnd: {
               type: MarkerType.ArrowClosed,
-              color: '#f59e0b',
+              color: actionConfig.color,
+              width: 22,
+              height: 22,
             },
             style: {
-              stroke: '#f59e0b',
-              strokeWidth: 2,
-              strokeDasharray: '5,5',
+              stroke: actionConfig.color,
+              strokeWidth: actionConfig.strokeWidth,
+              strokeDasharray: actionConfig.strokeDasharray,
+              opacity: 0.85,
             },
-            label: loops.length > 1 ? `${loops.length} self-loops` : 'self-loop',
+            label: shortLabel,
             labelStyle: {
-              fill: '#f59e0b',
-              fontWeight: 600,
-              fontSize: '10px',
-              background: 'rgba(255, 255, 255, 0.95)',
-              padding: '3px 8px',
-              borderRadius: '4px',
+              fill: actionConfig.labelColor,
+              fontWeight: 500,
+              fontSize: '11px',
             },
-            labelShowBg: true,
+            labelShowBg: false, // We handle background in custom component
             data: {
-              offset: 60,
-              loops: loops,
+              offset: offset,
+              loopIndex: loopIndex,
+              fullLabel: fullLabel,
+              actionConfig: actionConfig,
             },
           });
-        }
+        });
       });
 
       setFlowNodes(nodes);
@@ -484,6 +827,9 @@ function App() {
               return;
             }
 
+            // Clear old graph data when switching sessions to prevent showing stale data
+            setGraphData(null);
+            
             // Load graph for the selected session immediately
             loadGraph(currentSession);
             
@@ -1000,14 +1346,53 @@ function App() {
                     <p><strong>Visualization:</strong> Interactive mapping of exploration paths, interaction flows, and state transitions discovered by the agent.</p>
                   </div>
                   {graphData ? (
-                    <div className="graph-stats">
-                      <div className="stat-item">
-                        <strong>{graphData.nodes.length}</strong> States
+                    <>
+                      <div className="graph-stats">
+                        <div className="stat-item">
+                          <strong>{graphData.nodes.length}</strong> States
+                        </div>
+                        <div className="stat-item">
+                          <strong>{graphData.edges.length}</strong> Transitions
+                        </div>
                       </div>
-                      <div className="stat-item">
-                        <strong>{graphData.edges.length}</strong> Transitions
+                      <div className="edge-legend" style={{
+                        marginTop: '0.75rem',
+                        marginBottom: '0.75rem',
+                        padding: '0.75rem',
+                        background: '#f8f9fa',
+                        borderRadius: '6px',
+                        fontSize: '0.85rem',
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '0.75rem',
+                        alignItems: 'center',
+                      }}>
+                        <span style={{ fontWeight: 600, color: '#555', marginRight: '0.5rem' }}>Edge Types:</span>
+                        {Object.entries(ACTION_TYPE_CONFIGS).map(([key, config]) => (
+                          <div key={key} style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.4rem',
+                          }}>
+                            <svg width="24" height="4" style={{ overflow: 'visible' }}>
+                              <line
+                                x1="0"
+                                y1="2"
+                                x2="24"
+                                y2="2"
+                                stroke={config.color}
+                                strokeWidth="3"
+                                strokeDasharray={config.strokeDasharray || '0'}
+                                strokeLinecap="round"
+                              />
+                            </svg>
+                            <span style={{ color: '#666' }}>
+                              {config.icon} {key.charAt(0).toUpperCase() + key.slice(1)}
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                    </div>
+                    </>
                   ) : null}
                   {flowNodes.length > 0 ? (
                     <div className="flow-container">

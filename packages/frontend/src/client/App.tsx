@@ -468,6 +468,13 @@ function App() {
     };
   }, []);
 
+  // Auto-select first session when sessions are loaded and no session is selected
+  useEffect(() => {
+    if (sessions.length > 0 && currentSession === null) {
+      setCurrentSession(sessions[0].sessionId);
+    }
+  }, [sessions, currentSession]);
+
           // Poll current session for real-time updates
           useEffect(() => {
             if (!currentSession) {

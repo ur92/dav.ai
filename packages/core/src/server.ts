@@ -366,7 +366,8 @@ app.get('/graph', async (req, res) => {
       const num = typeof limitParam === 'string' ? parseInt(limitParam, 10) : Number(limitParam);
       limit = Math.floor(num) || 100;
     }
-    const graphData = await GraphService.queryGraph(limit);
+    const sessionId = req.query.sessionId as string | undefined;
+    const graphData = await GraphService.queryGraph(limit, sessionId);
     res.json(graphData);
   } catch (error) {
     res.status(500).json({

@@ -111,6 +111,8 @@ interface Session {
   sessionId: string;
   status: string;
   hasState: boolean;
+  url?: string;
+  createdAt?: string | Date;
   currentState?: {
     currentUrl?: string;
     actionHistory?: string[];
@@ -118,6 +120,11 @@ interface Session {
   };
   decisions?: string[]; // Agent decisions for display
   userStories?: UserStoriesResult; // Compiled user stories
+}
+
+interface SessionGraphCounts {
+  nodes: number;
+  edges: number;
 }
 
 interface GraphData {
@@ -158,6 +165,7 @@ function App() {
   const [flowEdges, setFlowEdges] = useState<Edge[]>([]);
   const [userStories, setUserStories] = useState<UserStoriesResult | null>(null);
   const [currentRetry, setCurrentRetry] = useState<RetrySession | null>(null);
+  const [sessionGraphCounts, setSessionGraphCounts] = useState<Map<string, SessionGraphCounts>>(new Map());
 
   // Convert graph data to ReactFlow format with Dagre hierarchical layout
   useEffect(() => {
@@ -592,11 +600,41 @@ function App() {
     });
   }, []);
 
+  const loadGraphCounts = async (sessionId: string): Promise<SessionGraphCounts> => {
+    try {
+      const response = await fetch(`http://localhost:3001/api/graph?limit=10000&sessionId=${encodeURIComponent(sessionId)}`);
+      if (response.ok) {
+        const graphData: GraphData = await response.json();
+        return {
+          nodes: graphData.nodes.length,
+          edges: graphData.edges.length,
+        };
+      }
+    } catch (error) {
+      console.error(`Error loading graph counts for session ${sessionId}:`, error);
+    }
+    return { nodes: 0, edges: 0 };
+  };
+
   const loadSessions = async () => {
     try {
       const response = await fetch('http://localhost:3001/api/sessions');
       const data = await response.json();
-      setSessions(data.sessions);
+      const sessionsList: Session[] = data.sessions;
+      setSessions(sessionsList);
+      
+      // Load graph counts for all sessions in parallel
+      const countsPromises = sessionsList.map(async (session) => {
+        const counts = await loadGraphCounts(session.sessionId);
+        return { sessionId: session.sessionId, counts };
+      });
+      
+      const countsResults = await Promise.all(countsPromises);
+      const countsMap = new Map<string, SessionGraphCounts>();
+      countsResults.forEach(({ sessionId, counts }) => {
+        countsMap.set(sessionId, counts);
+      });
+      setSessionGraphCounts(countsMap);
     } catch (error) {
       console.error('Error loading sessions:', error);
     }
@@ -868,61 +906,92 @@ function App() {
           </div>
         </section>
 
-        {/* Sessions Container with Tabs */}
+        {/* Sessions Container with List */}
         {sessions.length > 0 ? (
           <section className="sessions-container">
-            {/* Sessions Tabs */}
-            <div className="sessions-tabs-header">
-              <div className="sessions-tabs">
-                {sessions.map((session) => (
-                  <button
-                    key={session.sessionId}
-                    className={`session-tab ${currentSession === session.sessionId ? 'active' : ''}`}
-                    onClick={() => {
-                      setCurrentSession(session.sessionId);
-                      // loadGraph and userStories will be loaded by the useEffect when currentSession changes
-                    }}
-                  >
-                    <div className="session-tab-content">
-                      <div className="session-tab-main">
-                        <span className="session-tab-id">Session {sessions.indexOf(session) + 1}</span>
-                        <span className={`session-tab-status status-${session.status}`}>{session.status}</span>
+            {/* Left Column: Sessions List */}
+            <div className="sessions-list-column">
+              <div className="sessions-list-header">
+                <h2>📋 Sessions</h2>
+              </div>
+              <div className="sessions-list-container">
+                {sessions.map((session) => {
+                  const counts = sessionGraphCounts.get(session.sessionId) || { nodes: 0, edges: 0 };
+                  const createdAt = session.createdAt 
+                    ? (typeof session.createdAt === 'string' ? new Date(session.createdAt) : session.createdAt)
+                    : null;
+                  const formattedDate = createdAt 
+                    ? createdAt.toLocaleString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric', 
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })
+                    : 'Unknown';
+                  
+                  return (
+                    <div
+                      key={session.sessionId}
+                      className={`session-list-item ${currentSession === session.sessionId ? 'active' : ''}`}
+                      onClick={() => {
+                        setCurrentSession(session.sessionId);
+                      }}
+                    >
+                      <div className="session-list-item-main">
+                        <div className="session-list-item-header">
+                          <div className="session-list-item-title">
+                            <span className="session-list-item-id">Session {sessions.indexOf(session) + 1}</span>
+                            <span className={`session-list-item-status status-${session.status}`}>{session.status}</span>
+                          </div>
+                          {session.status === 'running' && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStopSession(session.sessionId);
+                              }}
+                              className="session-list-item-stop"
+                              title="Stop session"
+                            >
+                              ⏹️
+                            </button>
+                          )}
+                        </div>
+                        <div className="session-list-item-info">
+                          <div className="session-list-item-meta">
+                            <span className="session-list-item-timestamp">🕒 {formattedDate}</span>
+                            {session.url && (
+                              <span className="session-list-item-url" title={session.url}>
+                                🌐 {session.url.length > 30 ? `${session.url.substring(0, 30)}...` : session.url}
+                              </span>
+                            )}
+                          </div>
+                          <div className="session-list-item-stats">
+                            <span className="session-list-item-stat">
+                              <strong>{counts.nodes}</strong> nodes
+                            </span>
+                            <span className="session-list-item-stat">
+                              <strong>{counts.edges}</strong> edges
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      {session.status === 'running' && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleStopSession(session.sessionId);
-                          }}
-                          className="session-tab-stop"
-                          title="Stop session"
-                        >
-                          ⏹️
-                        </button>
-                      )}
                     </div>
-                  </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
-            {/* Session Content - Exploration Visualization and User Stories */}
-            {currentSession ? (
-              <div className="session-content">
+            {/* Right Column: Session Content - Exploration Visualization and User Stories */}
+            <div className="sessions-content-column">
+              {currentSession ? (
+                <div className="session-content">
                 {/* Visualization Panel */}
                 <section className="visualization-panel">
                   <h2>🗺️ Exploration Visualization</h2>
                   <div className="narrative-box">
                     <p><strong>Visualization:</strong> Interactive mapping of exploration paths, interaction flows, and state transitions discovered by the agent.</p>
                   </div>
-                  <button 
-                    onClick={() => loadGraph(currentSession || undefined)} 
-                    className="btn-secondary" 
-                    style={{ marginBottom: '1rem' }}
-                    disabled={!currentSession}
-                  >
-                    🔄 Refresh Graph
-                  </button>
                   {graphData ? (
                     <div className="graph-stats">
                       <div className="stat-item">
@@ -1124,14 +1193,33 @@ function App() {
                   )}
                 </section>
               </div>
-            ) : (
-              <div className="session-empty-state">
-                <p>Select a session tab above to view its exploration visualization and user stories.</p>
-              </div>
-            )}
+              ) : (
+                <div className="session-empty-state">
+                  <div className="session-empty-state-content">
+                    <div className="session-empty-state-icon">📋</div>
+                    <h3>Select a Session</h3>
+                    <p>Choose a session from the list on the left to view its exploration visualization and user stories.</p>
+                    <div className="session-empty-state-features">
+                      <div className="session-empty-state-feature">
+                        <span className="feature-icon">🗺️</span>
+                        <span>Exploration Visualization</span>
+                      </div>
+                      <div className="session-empty-state-feature">
+                        <span className="feature-icon">📖</span>
+                        <span>User Stories</span>
+                      </div>
+                      <div className="session-empty-state-feature">
+                        <span className="feature-icon">📊</span>
+                        <span>Graph Statistics</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </section>
         ) : (
-          <section className="sessions-container">
+          <section className="sessions-container" style={{ gridTemplateColumns: '1fr' }}>
             <div className="session-empty-state">
               <p>No sessions available. Start an exploration to create a session.</p>
             </div>

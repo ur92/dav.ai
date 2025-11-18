@@ -4,6 +4,7 @@ import { StageContext } from './stage-context.js';
 import { logger } from '../../utils/logger.js';
 import { extractTokenUsage } from '../../utils/token-usage.js';
 import { detectLoginScreen, findLoginField, findSubmitButton } from './login-helpers.js';
+import { buildDecideStagePrompt, buildCredentialsHint } from './decide-stage.prompts.js';
 
 /**
  * Creates the decide_action node handler
@@ -71,43 +72,14 @@ export function createDecideStage(context: StageContext) {
       }
 
       const credentialsHint = context.credentials.value?.username && context.credentials.value?.password && !context.loginSuccessful.value
-        ? `\n\n🔐 CREDENTIALS AVAILABLE FOR LOGIN:
-If you see a login form (username and password input fields), you can return MULTIPLE actions in an array:
-[
-  {"tool": "typeText", "selector": "#username", "text": "${context.credentials.value.username}"},
-  {"tool": "typeText", "selector": "#password", "text": "${context.credentials.value.password}"},
-  {"tool": "clickElement", "selector": "button[type='submit']"}
-]
-
-This allows executing all login steps in one batch, saving tokens and improving efficiency.`
+        ? buildCredentialsHint(context.credentials.value.username, context.credentials.value.password)
         : '';
 
-      const systemPrompt = `You are an autonomous web exploration agent. Your task is to analyze the current page state and decide actions.
-
-Available Tools:
-- clickElement: Click on a button, link, or interactive element
-- typeText: Type text into an input field
-- selectOption: Select an option from a dropdown
-- navigate: Navigate to a specific URL
-
-Current Page State:
-${state.domState}
-
-Action History:
-${state.actionHistory.slice(-5).join('\n')}
-${credentialsHint}
-
-Instructions:
-1. Analyze the actionable elements on the page
-2. You can return a SINGLE action OR MULTIPLE actions in an array for batch execution
-3. For login forms or multi-step interactions, return multiple actions to execute them efficiently
-4. If you've reached a natural endpoint, respond with "FLOW_END"
-5. Format your response as JSON:
-   - Single action: {"tool": "clickElement|typeText|selectOption|navigate", "selector": "...", "text": "...", "value": "...", "url": "..."}
-   - Multiple actions: {"actions": [{"tool": "...", "selector": "..."}, {"tool": "...", "selector": "..."}]}
-   - End flow: {"status": "FLOW_END"}
-
-Be concise and focus on exploring new paths. Batch related actions together when possible.`;
+      const systemPrompt = buildDecideStagePrompt(
+        state.domState,
+        state.actionHistory,
+        credentialsHint
+      );
 
       const messages = [
         new SystemMessage(systemPrompt),

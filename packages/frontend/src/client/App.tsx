@@ -444,6 +444,11 @@ interface Session {
   };
   decisions?: string[]; // Agent decisions for display
   userStories?: UserStoriesResult; // Compiled user stories
+  tokenUsage?: {
+    exploration: { inputTokens: number; outputTokens: number };
+    userStories: { inputTokens: number; outputTokens: number };
+    total: { inputTokens: number; outputTokens: number };
+  };
 }
 
 interface SessionGraphCounts {
@@ -1326,6 +1331,11 @@ function App() {
                             <span className="session-list-item-stat">
                               <strong>{counts.edges}</strong> edges
                             </span>
+                            {session.tokenUsage && (
+                              <span className="session-list-item-stat" title="Token usage">
+                                [{session.tokenUsage.total.inputTokens.toLocaleString()} / {session.tokenUsage.total.outputTokens.toLocaleString()}] tokens
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>

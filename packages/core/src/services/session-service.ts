@@ -18,6 +18,20 @@ export interface Session {
   maxIterations: number;
   createdAt: Date;
   decisions: string[]; // Agent decisions for frontend display
+  tokenUsage?: {
+    exploration: {
+      inputTokens: number;
+      outputTokens: number;
+    };
+    userStories: {
+      inputTokens: number;
+      outputTokens: number;
+    };
+    total: {
+      inputTokens: number;
+      outputTokens: number;
+    };
+  };
 }
 
 /**
@@ -103,6 +117,7 @@ export class SessionService {
         createdAt: session.createdAt,
         updatedAt: new Date(),
         error: (session as any).error,
+        tokenUsage: session.tokenUsage,
       });
     } catch (error) {
       logger.error('SessionService', 'Failed to save session metadata', {
@@ -116,11 +131,12 @@ export class SessionService {
   /**
    * Update session metadata in Neo4j
    */
-  private static async updateSessionMetadata(
+  static async updateSessionMetadata(
     sessionId: string,
     updates: {
       status?: Session['status'];
       error?: string;
+      tokenUsage?: Session['tokenUsage'];
     }
   ): Promise<void> {
     try {
@@ -132,9 +148,14 @@ export class SessionService {
         const metadata = allMetadata.find(m => m.sessionId === sessionId);
         if (metadata) {
           await tools.saveSessionMetadata({
-            ...metadata,
-            ...updates,
+            sessionId: metadata.sessionId,
+            status: updates.status || metadata.status,
+            url: metadata.url,
+            maxIterations: metadata.maxIterations,
+            createdAt: metadata.createdAt,
             updatedAt: new Date(),
+            error: updates.error || metadata.error,
+            tokenUsage: updates.tokenUsage || metadata.tokenUsage,
           });
         }
         return;
@@ -197,6 +218,11 @@ export class SessionService {
       maxIterations: result.maxIterations,
       createdAt: new Date(),
       decisions: [],
+      tokenUsage: {
+        exploration: { inputTokens: 0, outputTokens: 0 },
+        userStories: { inputTokens: 0, outputTokens: 0 },
+        total: { inputTokens: 0, outputTokens: 0 },
+      },
     };
 
     // Set up decision callback to store decisions in session
@@ -205,6 +231,26 @@ export class SessionService {
       // Keep only last 100 decisions to avoid memory issues
       if (session.decisions.length > 100) {
         session.decisions = session.decisions.slice(-100);
+      }
+    });
+
+    // Set up token usage callback to track exploration tokens
+    result.agent.setTokenUsageCallback((inputTokens: number, outputTokens: number) => {
+      if (session.tokenUsage) {
+        session.tokenUsage.exploration.inputTokens += inputTokens;
+        session.tokenUsage.exploration.outputTokens += outputTokens;
+        session.tokenUsage.total.inputTokens += inputTokens;
+        session.tokenUsage.total.outputTokens += outputTokens;
+        // Periodically update session metadata in Neo4j (every 10 token updates or so)
+        // We'll update on every call for now, but could debounce this
+        this.updateSessionMetadata(session.sessionId, {
+          tokenUsage: session.tokenUsage,
+        }).catch((error) => {
+          logger.error('SessionService', 'Failed to update token usage', {
+            sessionId: session.sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
       }
     });
 
@@ -262,6 +308,7 @@ export class SessionService {
     url: string;
     hasState: boolean;
     createdAt: Date;
+    tokenUsage?: Session['tokenUsage'];
   } | undefined {
     const session = this.sessions.get(sessionId);
     if (!session) return undefined;
@@ -272,6 +319,7 @@ export class SessionService {
       url: session.url,
       hasState: !!session.currentState,
       createdAt: session.createdAt,
+      tokenUsage: session.tokenUsage,
     };
   }
 
@@ -285,6 +333,7 @@ export class SessionService {
     url: string;
     hasState: boolean;
     createdAt: Date;
+    tokenUsage?: Session['tokenUsage'];
   }>> {
     // Get in-memory sessions
     const inMemorySessions = Array.from(this.sessions.values()).map((session) => ({
@@ -293,6 +342,7 @@ export class SessionService {
       url: session.url,
       hasState: !!session.currentState,
       createdAt: session.createdAt,
+      tokenUsage: session.tokenUsage,
     }));
 
     // Get persisted sessions from Neo4j
@@ -317,6 +367,7 @@ export class SessionService {
           url: metadata.url,
           hasState: false, // Can't have state if not in memory
           createdAt: metadata.createdAt,
+          tokenUsage: metadata.tokenUsage,
         };
       });
       

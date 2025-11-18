@@ -28,6 +28,7 @@ export interface UserStoriesResult {
  */
 export class UserStoryService {
   private llm: BaseChatModel;
+  private onTokenUsageCallback?: (inputTokens: number, outputTokens: number) => void;
 
   constructor() {
     const config = ConfigService.getConfig();
@@ -119,6 +120,14 @@ Generate comprehensive user stories based on this exploration data.`;
       const response = await this.llm.invoke(messages);
       const content = response.content as string;
 
+      // Track token usage
+      const usage = (response as any).response_metadata?.usage;
+      if (usage && this.onTokenUsageCallback) {
+        const inputTokens = usage.prompt_tokens || usage.input_tokens || 0;
+        const outputTokens = usage.completion_tokens || usage.output_tokens || 0;
+        this.onTokenUsageCallback(inputTokens, outputTokens);
+      }
+
       // Parse LLM response
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
@@ -159,6 +168,13 @@ Generate comprehensive user stories based on this exploration data.`;
       });
       throw error;
     }
+  }
+
+  /**
+   * Set callback for tracking token usage
+   */
+  setTokenUsageCallback(callback: (inputTokens: number, outputTokens: number) => void): void {
+    this.onTokenUsageCallback = callback;
   }
 
   /**

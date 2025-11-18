@@ -173,7 +173,34 @@ app.post('/explore', async (req, res) => {
           session.decisions.push('📖 Compiling user stories...');
           
           const userStoryService = new UserStoryService();
+          
+          // Set up token tracking for user story generation
+          userStoryService.setTokenUsageCallback((inputTokens: number, outputTokens: number) => {
+            if (session.tokenUsage) {
+              session.tokenUsage.userStories.inputTokens += inputTokens;
+              session.tokenUsage.userStories.outputTokens += outputTokens;
+              session.tokenUsage.total.inputTokens += inputTokens;
+              session.tokenUsage.total.outputTokens += outputTokens;
+              // Update session metadata in Neo4j
+              SessionService.updateSessionMetadata(session.sessionId, {
+                tokenUsage: session.tokenUsage,
+              }).catch((error) => {
+                logger.error('Server', 'Failed to update token usage', {
+                  sessionId: session.sessionId,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              });
+            }
+          });
+          
           const userStories = await userStoryService.generateUserStories(session.sessionId);
+          
+          // Save updated token usage after user story generation
+          if (session.tokenUsage) {
+            await SessionService.updateSessionMetadata(session.sessionId, {
+              tokenUsage: session.tokenUsage,
+            });
+          }
           
           // Store user stories in session for retrieval
           (session as any).userStories = userStories;
@@ -267,6 +294,7 @@ app.get('/session/:sessionId', async (req, res) => {
           status: metadata.status,
           currentState: undefined,
           decisions: [],
+          tokenUsage: metadata.tokenUsage,
         };
         
         if (metadata.error) {
@@ -303,6 +331,7 @@ app.get('/session/:sessionId', async (req, res) => {
       status: session.status,
       currentState: session.currentState,
       decisions: session.decisions || [], // Include agent decisions
+      tokenUsage: session.tokenUsage, // Include token usage
     };
     
     // Include error details if available

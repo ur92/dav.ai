@@ -237,6 +237,11 @@ export class Neo4jTools {
     createdAt: Date;
     updatedAt?: Date;
     error?: string;
+    tokenUsage?: {
+      exploration: { inputTokens: number; outputTokens: number };
+      userStories: { inputTokens: number; outputTokens: number };
+      total: { inputTokens: number; outputTokens: number };
+    };
   }): Promise<void> {
     const dbSession = this.driver.session();
     
@@ -252,12 +257,14 @@ export class Neo4jTools {
                       s.url = $url,
                       s.maxIterations = $maxIterations,
                       s.updatedAt = $updatedAt,
-                      s.error = $error
+                      s.error = $error,
+                      s.tokenUsage = $tokenUsage
         ON MATCH SET s.status = $status,
                      s.url = $url,
                      s.maxIterations = $maxIterations,
                      s.updatedAt = $updatedAt,
-                     s.error = $error
+                     s.error = $error,
+                     s.tokenUsage = $tokenUsage
         RETURN s
       `;
       
@@ -269,6 +276,7 @@ export class Neo4jTools {
         createdAt: createdAt,
         updatedAt: updatedAt,
         error: metadata.error || null,
+        tokenUsage: metadata.tokenUsage ? JSON.stringify(metadata.tokenUsage) : null,
       };
       
       await dbSession.run(query, params);
@@ -295,6 +303,11 @@ export class Neo4jTools {
     createdAt: Date;
     updatedAt: Date;
     error?: string;
+    tokenUsage?: {
+      exploration: { inputTokens: number; outputTokens: number };
+      userStories: { inputTokens: number; outputTokens: number };
+      total: { inputTokens: number; outputTokens: number };
+    };
   }>> {
     const dbSession = this.driver.session();
     
@@ -319,6 +332,17 @@ export class Neo4jTools {
           ? new Date(properties.updatedAt)
           : new Date(properties.updatedAt.toString());
         
+        let tokenUsage;
+        if (properties.tokenUsage) {
+          try {
+            tokenUsage = typeof properties.tokenUsage === 'string' 
+              ? JSON.parse(properties.tokenUsage)
+              : properties.tokenUsage;
+          } catch (e) {
+            logger.warn('Neo4j', 'Failed to parse tokenUsage', { sessionId: properties.sessionId });
+          }
+        }
+        
         return {
           sessionId: properties.sessionId,
           status: properties.status as 'idle' | 'running' | 'completed' | 'error',
@@ -329,6 +353,7 @@ export class Neo4jTools {
           createdAt,
           updatedAt,
           error: properties.error || undefined,
+          tokenUsage,
         };
       });
     } catch (error) {
@@ -352,6 +377,11 @@ export class Neo4jTools {
     createdAt: Date;
     updatedAt: Date;
     error?: string;
+    tokenUsage?: {
+      exploration: { inputTokens: number; outputTokens: number };
+      userStories: { inputTokens: number; outputTokens: number };
+      total: { inputTokens: number; outputTokens: number };
+    };
   } | null> {
     const dbSession = this.driver.session();
     
@@ -379,6 +409,17 @@ export class Neo4jTools {
         ? new Date(properties.updatedAt)
         : new Date(properties.updatedAt.toString());
       
+      let tokenUsage;
+      if (properties.tokenUsage) {
+        try {
+          tokenUsage = typeof properties.tokenUsage === 'string' 
+            ? JSON.parse(properties.tokenUsage)
+            : properties.tokenUsage;
+        } catch (e) {
+          logger.warn('Neo4j', 'Failed to parse tokenUsage', { sessionId });
+        }
+      }
+      
       return {
         sessionId: properties.sessionId,
         status: properties.status as 'idle' | 'running' | 'completed' | 'error',
@@ -389,6 +430,7 @@ export class Neo4jTools {
         createdAt,
         updatedAt,
         error: properties.error || undefined,
+        tokenUsage,
       };
     } catch (error) {
       logger.error('Neo4j', 'Error loading session metadata', {

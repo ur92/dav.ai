@@ -24,6 +24,7 @@ export class DavAgent {
   private loginSuccessful: boolean = false; // Track if login was successful
   private executedTransitions: Set<string> = new Set(); // Track executed transitions to avoid duplicates
   private onDecisionCallback?: (decision: string) => void; // Callback for emitting decisions to frontend
+  private onTokenUsageCallback?: (inputTokens: number, outputTokens: number) => void; // Callback for tracking token usage
 
   constructor(
     browserTools: BrowserTools,
@@ -440,6 +441,14 @@ Be concise and focus on exploring new paths. Batch related actions together when
       const response = await this.llm.invoke(messages);
       const content = response.content as string;
 
+      // Track token usage
+      const usage = (response as any).response_metadata?.usage;
+      if (usage && this.onTokenUsageCallback) {
+        const inputTokens = usage.prompt_tokens || usage.input_tokens || 0;
+        const outputTokens = usage.completion_tokens || usage.output_tokens || 0;
+        this.onTokenUsageCallback(inputTokens, outputTokens);
+      }
+
       logger.info('DECIDE', `LLM Response: ${content}`);
 
       // Parse LLM response
@@ -792,6 +801,13 @@ Be concise and focus on exploring new paths. Batch related actions together when
    */
   setDecisionCallback(callback: (decision: string) => void): void {
     this.onDecisionCallback = callback;
+  }
+
+  /**
+   * Set callback for tracking token usage
+   */
+  setTokenUsageCallback(callback: (inputTokens: number, outputTokens: number) => void): void {
+    this.onTokenUsageCallback = callback;
   }
 
   /**

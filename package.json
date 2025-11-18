@@ -23,7 +23,8 @@
     "neo4j:down": "docker compose down",
     "neo4j:logs": "docker compose logs -f neo4j",
     "neo4j:restart": "docker compose restart neo4j",
-    "neo4j:status": "docker compose ps neo4j"
+    "neo4j:status": "docker compose ps neo4j",
+    "test:e2e": "yarn workspace @dav-ai/e2e test"
   },
   "packageManager": "yarn@4.0.0",
   "devDependencies": {

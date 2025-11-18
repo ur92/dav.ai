@@ -421,6 +421,29 @@ export class RetryService {
       
       logger.info('RetryService', `Executing complete path with ${completePath.length} steps`);
 
+      // Rebuild steps array to match the actual execution path
+      // This ensures steps are in sync with what's actually being executed
+      const steps: RetryStep[] = [];
+      steps.push({
+        index: 0,
+        description: `Navigate to entry: ${entryUrl}`,
+        status: 'pending',
+      });
+      completePath.forEach((pathItem, idx) => {
+        steps.push({
+          index: idx + 1,
+          description: `${pathItem.action}: ${pathItem.from} → ${pathItem.to}`,
+          status: 'pending',
+        });
+      });
+      retrySession.steps = steps;
+      logger.info('RetryService', `Rebuilt ${steps.length} steps to match execution path`);
+      
+      // Notify about all steps being updated (so UI can refresh)
+      steps.forEach(step => {
+        this.notifyStepUpdate(retryId, step);
+      });
+
       // Step 0: Navigate to entry URL
       await this.executeStep(retryId, 0, async () => {
         logger.info('RetryService', `Navigating to entry URL: ${entryUrl}`);

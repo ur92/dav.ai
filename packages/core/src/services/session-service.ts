@@ -350,7 +350,15 @@ export class SessionService {
       const inMemoryMap = new Map(inMemorySessions.map(s => [s.sessionId, s]));
       
       // Merge: use in-memory if exists, otherwise use persisted
-      const allSessions = persistedMetadata.map((metadata) => {
+      const allSessions: Array<{
+        sessionId: string;
+        status: Session['status'];
+        url: string;
+        hasState: boolean;
+        createdAt: Date;
+        tokenUsage?: Session['tokenUsage'];
+        graphCounts?: { nodes: number; edges: number };
+      }> = persistedMetadata.map((metadata) => {
         const inMemory = inMemoryMap.get(metadata.sessionId);
         if (inMemory) {
           return inMemory; // Prefer in-memory (more up-to-date)

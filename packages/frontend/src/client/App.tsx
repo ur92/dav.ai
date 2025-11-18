@@ -59,6 +59,24 @@ const ACTION_TYPE_CONFIGS: Record<string, ActionTypeConfig> = {
   },
 };
 
+/**
+ * Format a number in thousands with "k" notation
+ * Examples: 14000 -> "14k", 500 -> "0.5k", 1500 -> "1.5k", 1000 -> "1k"
+ */
+function formatTokens(num: number): string {
+  if (num === 0) return '0';
+  if (num < 1000) {
+    // For numbers less than 1000, show as decimal k (e.g., 500 -> 0.5k)
+    return `${(num / 1000).toFixed(1)}k`;
+  }
+  // For numbers >= 1000, show whole k with one decimal if needed
+  const thousands = num / 1000;
+  if (thousands % 1 === 0) {
+    return `${thousands}k`;
+  }
+  return `${thousands.toFixed(1)}k`;
+}
+
 function getActionTypeConfig(label: string): ActionTypeConfig {
   const lowerLabel = label.toLowerCase();
   if (lowerLabel.includes('click')) return ACTION_TYPE_CONFIGS.click;
@@ -1333,7 +1351,7 @@ function App() {
                             </span>
                             {session.tokenUsage && (
                               <span className="session-list-item-stat" title="Token usage">
-                                [{session.tokenUsage.total.inputTokens.toLocaleString()} / {session.tokenUsage.total.outputTokens.toLocaleString()}] tokens
+                                [{formatTokens(session.tokenUsage.total.inputTokens)} / {formatTokens(session.tokenUsage.total.outputTokens)}] tokens
                               </span>
                             )}
                           </div>

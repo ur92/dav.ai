@@ -6,6 +6,7 @@ import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { logger } from '../utils/logger.js';
+import { extractTokenUsage } from '../utils/token-usage.js';
 
 export interface UserStory {
   title: string;
@@ -121,11 +122,15 @@ Generate comprehensive user stories based on this exploration data.`;
       const content = response.content as string;
 
       // Track token usage
-      const usage = (response as any).response_metadata?.usage;
-      if (usage && this.onTokenUsageCallback) {
-        const inputTokens = usage.prompt_tokens || usage.input_tokens || 0;
-        const outputTokens = usage.completion_tokens || usage.output_tokens || 0;
-        this.onTokenUsageCallback(inputTokens, outputTokens);
+      const tokenUsage = extractTokenUsage(response);
+      if (tokenUsage && this.onTokenUsageCallback) {
+        this.onTokenUsageCallback(tokenUsage.inputTokens, tokenUsage.outputTokens);
+      } else if (this.onTokenUsageCallback) {
+        // Log warning if we couldn't extract usage (for debugging)
+        logger.warn('UserStoryService', 'Could not extract token usage from LLM response', {
+          responseKeys: Object.keys(response as any),
+          responseMetadata: (response as any).response_metadata,
+        });
       }
 
       // Parse LLM response

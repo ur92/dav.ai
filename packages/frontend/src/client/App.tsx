@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -525,6 +525,7 @@ function App() {
   const [userStories, setUserStories] = useState<UserStoriesResult | null>(null);
   const [currentRetry, setCurrentRetry] = useState<RetrySession | null>(null);
   const [sessionGraphCounts, setSessionGraphCounts] = useState<Map<string, SessionGraphCounts>>(new Map());
+  const activityFeedRef = useRef<HTMLDivElement>(null);
 
   // Convert graph data to ReactFlow format with Dagre hierarchical layout
   useEffect(() => {
@@ -1024,6 +1025,13 @@ function App() {
     });
   }, []);
 
+  // Auto-scroll to bottom when new activity is added
+  useEffect(() => {
+    if (activityFeedRef.current) {
+      activityFeedRef.current.scrollTop = activityFeedRef.current.scrollHeight;
+    }
+  }, [agentActivity]);
+
   const loadGraphCounts = async (sessionId: string): Promise<SessionGraphCounts> => {
     try {
       const response = await fetch(`http://localhost:3001/api/graph?limit=10000&sessionId=${encodeURIComponent(sessionId)}`);
@@ -1309,7 +1317,7 @@ function App() {
         {/* Exploration Log */}
         <section className="activity-panel">
           <h2>📊 Exploration Log</h2>
-          <div className="activity-feed">
+          <div className="activity-feed" ref={activityFeedRef}>
             {agentActivity.length === 0 ? (
               <p className="empty-state">No activity yet. Deploy the agent to see exploration logs.</p>
             ) : (

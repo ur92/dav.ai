@@ -43,7 +43,7 @@ This is a **Yarn Workspaces Monorepo** containing:
 | **Web Automation** | Playwright | High-performance browser automation with auto-waiting |
 | **Agent Framework** | LangGraph.js | StateGraph and ReAct cycle for autonomous agents |
 | **Graph Database** | Neo4j | Stores DAG of States (Nodes) and Actions (Relationships) |
-| **LLM** | OpenAI/Anthropic | ReAct decision engine and user story generation |
+| **LLM** | OpenAI/Anthropic/Gemini | ReAct decision engine and user story generation |
 | **Frontend** | React + ReactFlow | Interactive graph visualization and UI |
 | **Backend** | Express.js | REST API and WebSocket server |
 
@@ -111,13 +111,14 @@ dav-ai/
    Create a `.env` file in the root directory:
    ```env
    # LLM Provider Configuration (required)
-   LLM_PROVIDER=anthropic  # or 'openai'
+   LLM_PROVIDER=anthropic  # or 'openai' or 'gemini'
    LLM_API_KEY=your_llm_api_key_here
    
    # LLM Model (optional, has defaults based on provider)
-   # Anthropic default: claude-3-5-sonnet-20241022
+   # Anthropic default: claude-sonnet-4-5
    # OpenAI default: gpt-4o
-   LLM_MODEL=claude-3-5-sonnet-20241022
+   # Gemini default: gemini-2.5-pro
+   LLM_MODEL=claude-sonnet-4-5
    
    # Neo4j Configuration (optional, has defaults)
    NEO4J_URI=bolt://localhost:7687
@@ -360,7 +361,6 @@ The frontend BFF server proxies requests to the core service and adds WebSocket 
 ### 🔮 Future Enhancements
 
 - [ ] Multi-path exploration (parallel flows)
-- [ ] Integration with additional LLM providers (Gemini, etc.)
 - [ ] Export graph data to various formats (JSON, CSV, etc.)
 - [ ] Advanced filtering and search in graph visualization
 - [ ] User story editing and customization

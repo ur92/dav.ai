@@ -2,6 +2,7 @@ import { GraphService } from './graph-service.js';
 import { ConfigService } from './config-service.js';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatAnthropic } from '@langchain/anthropic';
+import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { logger } from '../utils/logger.js';
@@ -36,6 +37,12 @@ export class UserStoryService {
       this.llm = new ChatAnthropic({
         anthropicApiKey: apiKey,
         modelName: config.llmModel || 'claude-sonnet-4-5',
+        temperature: 0.3, // Slightly higher for creative story generation
+      });
+    } else if (config.llmProvider === 'gemini') {
+      this.llm = new ChatGoogleGenerativeAI({
+        apiKey: apiKey,
+        model: config.llmModel || 'gemini-2.5-pro',
         temperature: 0.3, // Slightly higher for creative story generation
       });
     } else {

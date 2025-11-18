@@ -1,6 +1,7 @@
 import { StateGraph, END } from '@langchain/langgraph';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatAnthropic } from '@langchain/anthropic';
+import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { DavAgentState, PendingAction } from '../types/state.js';
@@ -28,7 +29,7 @@ export class DavAgent {
     browserTools: BrowserTools,
     neo4jTools: Neo4jTools,
     llmApiKey: string,
-    llmProvider: 'openai' | 'anthropic' = 'openai',
+    llmProvider: 'openai' | 'anthropic' | 'gemini' = 'openai',
     llmModel: string = 'gpt-4o',
     sessionId: string = `session-${Date.now()}`,
     credentials?: { username?: string; password?: string }
@@ -43,6 +44,12 @@ export class DavAgent {
       this.llm = new ChatAnthropic({
         anthropicApiKey: llmApiKey,
         modelName: llmModel || 'claude-sonnet-4-5',
+        temperature: 0.1, // Low temperature for deterministic decisions
+      });
+    } else if (llmProvider === 'gemini') {
+      this.llm = new ChatGoogleGenerativeAI({
+        apiKey: llmApiKey,
+        model: llmModel || 'gemini-2.5-pro',
         temperature: 0.1, // Low temperature for deterministic decisions
       });
     } else {

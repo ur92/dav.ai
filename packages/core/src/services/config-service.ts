@@ -4,7 +4,7 @@
  */
 export interface AppConfig {
   // LLM Configuration
-  llmProvider: 'openai' | 'anthropic';
+  llmProvider: 'openai' | 'anthropic' | 'gemini';
   llmModel: string;
   llmApiKey: string;
   
@@ -35,15 +35,23 @@ export class ConfigService {
    * This should be called once at application startup
    */
   static initialize(): void {
-    const llmProvider = ((process.env.LLM_PROVIDER || 'openai').toLowerCase()) as 'openai' | 'anthropic';
+    const llmProvider = ((process.env.LLM_PROVIDER || 'openai').toLowerCase()) as 'openai' | 'anthropic' | 'gemini';
     
     // Get API key - only use LLM_API_KEY
     const llmApiKey = process.env.LLM_API_KEY || '';
     
+    // Determine default model based on provider
+    let defaultModel = 'gpt-4o';
+    if (llmProvider === 'anthropic') {
+      defaultModel = 'claude-sonnet-4-5';
+    } else if (llmProvider === 'gemini') {
+      defaultModel = 'gemini-2.5-pro';
+    }
+    
     this.config = {
       // LLM Configuration
       llmProvider,
-      llmModel: process.env.LLM_MODEL || (llmProvider === 'anthropic' ? 'claude-sonnet-4-5' : 'gpt-4o'),
+      llmModel: process.env.LLM_MODEL || defaultModel,
       llmApiKey,
       
       // Neo4j Configuration

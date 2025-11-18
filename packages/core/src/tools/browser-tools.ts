@@ -120,8 +120,14 @@ export class BrowserTools {
           } else {
             // Generate a simple CSS selector
             const tag = element.tagName.toLowerCase();
+            // Sanitize class names - remove invalid CSS characters like =, :, etc.
             const classes = element.className
-              ? `.${String(element.className).split(' ').filter((c: string) => c).join('.')}`
+              ? `.${String(element.className)
+                  .split(' ')
+                  .filter((c: string) => c && !c.includes('=') && !c.includes(':'))
+                  .map((c: string) => c.replace(/[^a-zA-Z0-9_-]/g, '')) // Remove any remaining invalid chars
+                  .filter((c: string) => c.length > 0) // Remove empty strings after sanitization
+                  .join('.')}`
               : '';
             selectorStr = `${tag}${classes}`;
           }
@@ -175,13 +181,34 @@ export class BrowserTools {
   }
 
   /**
+   * Sanitize a CSS selector to remove invalid characters
+   */
+  private sanitizeSelector(selector: string): string {
+    if (!selector) return selector;
+    
+    // Remove any parts with = (attribute-like syntax that's not valid CSS)
+    // Split by space and filter out invalid parts
+    const parts = selector.split(/\s+/).filter(part => {
+      // Remove parts that contain = (not valid in CSS class selectors)
+      if (part.includes('=') && !part.startsWith('[') && !part.endsWith(']')) {
+        return false;
+      }
+      return true;
+    });
+    
+    return parts.join(' ').trim();
+  }
+
+  /**
    * Click an element by selector
    */
   async clickElement(selector: string): Promise<void> {
     if (!this.page) {
       throw new Error('Browser not initialized.');
     }
-    await this.page.click(selector);
+    // Sanitize selector to remove invalid characters
+    const sanitized = this.sanitizeSelector(selector);
+    await this.page.click(sanitized);
     // Wait for navigation or state change
     await this.page.waitForTimeout(500);
   }
@@ -193,7 +220,9 @@ export class BrowserTools {
     if (!this.page) {
       throw new Error('Browser not initialized.');
     }
-    await this.page.fill(selector, text);
+    // Sanitize selector to remove invalid characters
+    const sanitized = this.sanitizeSelector(selector);
+    await this.page.fill(sanitized, text);
   }
 
   /**
@@ -203,7 +232,9 @@ export class BrowserTools {
     if (!this.page) {
       throw new Error('Browser not initialized.');
     }
-    await this.page.selectOption(selector, value);
+    // Sanitize selector to remove invalid characters
+    const sanitized = this.sanitizeSelector(selector);
+    await this.page.selectOption(sanitized, value);
   }
 
   /**

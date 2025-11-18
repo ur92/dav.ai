@@ -460,7 +460,13 @@ interface Session {
     actionHistory?: string[];
     explorationStatus?: string;
   };
-  decisions?: string[]; // Agent decisions for display
+  logs?: Array<{
+    timestamp: string;
+    level: 'INFO' | 'WARN' | 'ERROR';
+    context: string;
+    message: string;
+    data?: any;
+  }>; // CORE logs for display
   userStories?: UserStoriesResult; // Compiled user stories
   tokenUsage?: {
     exploration: { inputTokens: number; outputTokens: number };
@@ -507,7 +513,13 @@ function App() {
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(false);
   const [ws, setWs] = useState<WebSocket | null>(null);
-  const [agentActivity, setAgentActivity] = useState<string[]>([]);
+  const [agentActivity, setAgentActivity] = useState<Array<string | {
+    timestamp: string;
+    level: string;
+    context: string;
+    message: string;
+    data?: any;
+  }>>([]);
   const [flowNodes, setFlowNodes] = useState<Node[]>([]);
   const [flowEdges, setFlowEdges] = useState<Edge[]>([]);
   const [userStories, setUserStories] = useState<UserStoriesResult | null>(null);
@@ -898,13 +910,19 @@ function App() {
                   const justCompleted = (previousStatus === 'running' || previousStatus === null) && 
                                        (session.status === 'completed' || session.status === 'error');
                   
-                  // Update activity feed with new decisions (agent decisions)
-                  if (session.decisions && Array.isArray(session.decisions)) {
-                    const newDecisions = session.decisions.slice(lastDecisionCount);
-                    newDecisions.forEach((decision) => {
-                      addActivity(decision);
+                  // Update activity feed with new logs (CORE logs)
+                  if (session.logs && Array.isArray(session.logs)) {
+                    const newLogs = session.logs.slice(lastDecisionCount);
+                    newLogs.forEach((log) => {
+                      addActivity({
+                        timestamp: log.timestamp,
+                        level: log.level,
+                        context: log.context,
+                        message: log.message,
+                        data: log.data,
+                      });
                     });
-                    lastDecisionCount = session.decisions.length;
+                    lastDecisionCount = session.logs.length;
                   }
 
                   // Update user stories if available (always check, not just when completed)
@@ -924,10 +942,16 @@ function App() {
                   if (session.status === 'completed' || session.status === 'error') {
                     setLoading(false);
                     loadGraph(currentSession);
-                    // Add final decisions if any
-                    if (session.decisions && session.decisions.length > lastDecisionCount) {
-                      session.decisions.slice(lastDecisionCount).forEach((decision) => {
-                        addActivity(decision);
+                    // Add final logs if any
+                    if (session.logs && session.logs.length > lastDecisionCount) {
+                      session.logs.slice(lastDecisionCount).forEach((log) => {
+                        addActivity({
+                          timestamp: log.timestamp,
+                          level: log.level,
+                          context: log.context,
+                          message: log.message,
+                          data: log.data,
+                        });
                       });
                     }
                     // Ensure user stories are loaded when completed
@@ -968,9 +992,33 @@ function App() {
             };
           }, [currentSession]);
 
-  const addActivity = useCallback((message: string) => {
+  const getStageInfo = useCallback((context: string) => {
+    const upperContext = context.toUpperCase();
+    if (upperContext.includes('OBSERVE')) {
+      return { icon: '👁️', color: '#3b82f6', name: 'OBSERVE' };
+    } else if (upperContext.includes('EXECUTE')) {
+      return { icon: '⚡', color: '#10b981', name: 'EXECUTE' };
+    } else if (upperContext.includes('DECIDE')) {
+      return { icon: '🤖', color: '#8b5cf6', name: 'DECIDE' };
+    } else if (upperContext.includes('PERSIST')) {
+      return { icon: '💾', color: '#f59e0b', name: 'PERSIST' };
+    } else if (upperContext.includes('AGENT')) {
+      return { icon: '🤖', color: '#667eea', name: 'AGENT' };
+    } else if (upperContext.includes('SERVER')) {
+      return { icon: '🖥️', color: '#6b7280', name: 'SERVER' };
+    }
+    return { icon: '📝', color: '#9ca3af', name: context };
+  }, []);
+
+  const addActivity = useCallback((message: string | {
+    timestamp: string;
+    level: string;
+    context: string;
+    message: string;
+    data?: any;
+  }) => {
     setAgentActivity((prev) => {
-      const newActivity = [...prev, `[${new Date().toLocaleTimeString()}] ${message}`];
+      const newActivity = [...prev, message];
       // Keep only last 50 activities
       return newActivity.slice(-50);
     });
@@ -1239,45 +1287,64 @@ function App() {
               />
             </div>
           </div>
-          <button
-            onClick={handleStartExploration}
-            disabled={loading}
-            className="btn-primary"
-          >
-            {loading ? '🔄 Agent Operating...' : '🚀 Deploy Agent'}
-          </button>
-          {activeSession && (
-            <div className="session-status">
-              <div className="status-indicator">
-                <span className={`status-dot status-${activeSession.status}`}></span>
-                <span>Status: <strong>{activeSession.status}</strong></span>
-              </div>
-              {activeSession.currentState?.currentUrl && (
-                <div className="current-url">
-                  Current: {activeSession.currentState.currentUrl.length > 50 
-                    ? `${activeSession.currentState.currentUrl.substring(0, 50)}...`
-                    : activeSession.currentState.currentUrl}
-                </div>
-              )}
-            </div>
+          {activeSession && activeSession.status === 'running' ? (
+            <button
+              onClick={() => handleStopSession(activeSession.sessionId)}
+              className="btn-primary"
+              style={{ background: 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)' }}
+            >
+              ⏹️ Stop Agent
+            </button>
+          ) : (
+            <button
+              onClick={handleStartExploration}
+              disabled={loading}
+              className="btn-primary"
+            >
+              {loading ? '🔄 Agent Operating...' : '🚀 Deploy Agent'}
+            </button>
           )}
         </section>
 
-        {/* Data-Driven Activity Feed */}
+        {/* Exploration Log */}
         <section className="activity-panel">
-          <h2>📊 Data-Driven Analysis</h2>
-          <div className="narrative-box">
-            <p><strong>Data-Driven:</strong> Real-time analysis of user actions, responses, and behavior patterns to understand application flow.</p>
-          </div>
+          <h2>📊 Exploration Log</h2>
           <div className="activity-feed">
             {agentActivity.length === 0 ? (
-              <p className="empty-state">No activity yet. Deploy the agent to see data-driven analysis.</p>
+              <p className="empty-state">No activity yet. Deploy the agent to see exploration logs.</p>
             ) : (
-              agentActivity.map((activity, index) => (
-                <div key={index} className="activity-item">
-                  {activity}
-                </div>
-              ))
+              agentActivity.map((activity, index) => {
+                // Handle legacy string format
+                if (typeof activity === 'string') {
+                  return (
+                    <div key={index} className="activity-item">
+                      {activity}
+                    </div>
+                  );
+                }
+                
+                // Handle new log object format
+                const stageInfo = getStageInfo(activity.context);
+                const timestamp = new Date(activity.timestamp).toLocaleTimeString();
+                const levelColor = activity.level === 'ERROR' ? '#ef4444' : 
+                                  activity.level === 'WARN' ? '#f59e0b' : 
+                                  '#60a5fa';
+                
+                return (
+                  <div key={index} className="activity-item" style={{ borderLeftColor: stageInfo.color }}>
+                    <div className="activity-item-header">
+                      <span className="activity-stage" style={{ color: stageInfo.color }}>
+                        {stageInfo.icon} {stageInfo.name}
+                      </span>
+                      <span className="activity-level" style={{ color: levelColor }}>
+                        {activity.level}
+                      </span>
+                      <span className="activity-timestamp">{timestamp}</span>
+                    </div>
+                    <div className="activity-message">{activity.message}</div>
+                  </div>
+                );
+              })
             )}
           </div>
         </section>

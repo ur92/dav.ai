@@ -18,10 +18,20 @@ export class BrowserTools {
    * Initialize browser and create a new page
    */
   async initialize(): Promise<void> {
+    const windowWidth = 900;
+    // Use 16:10 aspect ratio (common modern display ratio)
+    const windowHeight = Math.round(windowWidth * 10 / 16);
+    
     this.browser = await chromium.launch({
       headless: this.headless,
+      args: [
+        `--window-size=${windowWidth},${windowHeight}`,
+        `--window-position=0,0`,
+      ],
     });
     this.page = await this.browser.newPage();
+    // Set viewport to match window size
+    await this.page.setViewportSize({ width: windowWidth, height: windowHeight });
   }
 
   /**

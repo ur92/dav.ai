@@ -1,6 +1,6 @@
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { BrowserTools } from '../../tools/browser-tools.js';
-import { Neo4jTools } from '../../tools/neo4j-tools.js';
+import { BrowserTools } from '../../utils/browser-tools.js';
+import { Neo4jTools } from '../../utils/neo4j-tools.js';
 
 /**
  * StageContext - Shared context passed to all stage handlers

@@ -1,5 +1,5 @@
 import neo4j, { Driver, Session } from 'neo4j-driver';
-import { logger } from '../utils/logger.js';
+import { logger } from './logger.js';
 
 /**
  * Neo4jTools - Handles all Neo4j database operations

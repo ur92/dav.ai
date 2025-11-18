@@ -9,7 +9,7 @@ import * as dotenv from 'dotenv';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { ConfigService } from '../services/config-service.js';
-import { Neo4jTools } from '../tools/neo4j-tools.js';
+import { Neo4jTools } from '../utils/neo4j-tools.js';
 import { logger } from '../utils/logger.js';
 
 // Load environment variables from root .env file

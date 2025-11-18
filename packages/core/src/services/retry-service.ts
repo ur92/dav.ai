@@ -1,4 +1,4 @@
-import { BrowserTools } from '../tools/browser-tools.js';
+import { BrowserTools } from '../utils/browser-tools.js';
 import { ConfigService } from './config-service.js';
 import { UserStory } from './user-story-service.js';
 import { GraphService, GraphNode, GraphEdge } from './graph-service.js';

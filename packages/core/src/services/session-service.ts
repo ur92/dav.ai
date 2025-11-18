@@ -1,5 +1,5 @@
-import { BrowserTools } from '../tools/browser-tools.js';
-import { Neo4jTools } from '../tools/neo4j-tools.js';
+import { BrowserTools } from '../utils/browser-tools.js';
+import { Neo4jTools } from '../utils/neo4j-tools.js';
 import { DavAgent } from '../agent/dav-agent.js';
 import type { DavAgentState } from '../types/state.js';
 import { AgentService } from './agent-service.js';
@@ -329,6 +329,7 @@ export class SessionService {
     hasState: boolean;
     createdAt: Date;
     tokenUsage?: Session['tokenUsage'];
+    graphCounts?: { nodes: number; edges: number };
   }>> {
     // Get in-memory sessions
     const inMemorySessions = Array.from(this.sessions.values()).map((session) => ({
@@ -371,6 +372,26 @@ export class SessionService {
         if (!allSessions.find(s => s.sessionId === inMemory.sessionId)) {
           allSessions.push(inMemory);
         }
+      }
+      
+      // Load graph counts for all sessions efficiently
+      try {
+        const { GraphService } = await import('./graph-service.js');
+        const sessionIds = allSessions.map(s => s.sessionId);
+        const graphCounts = await GraphService.getGraphCountsForSessions(sessionIds);
+        
+        // Add graph counts to each session
+        allSessions.forEach((session) => {
+          const counts = graphCounts.get(session.sessionId);
+          if (counts) {
+            session.graphCounts = counts;
+          }
+        });
+      } catch (error) {
+        // If loading graph counts fails, continue without them
+        logger.warn('SessionService', 'Failed to load graph counts', {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
       
       // Sort by createdAt descending

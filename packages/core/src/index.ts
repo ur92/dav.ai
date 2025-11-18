@@ -1,5 +1,5 @@
-import { BrowserTools } from './tools/browser-tools.js';
-import { Neo4jTools } from './tools/neo4j-tools.js';
+import { BrowserTools } from './utils/browser-tools.js';
+import { Neo4jTools } from './utils/neo4j-tools.js';
 import { DavAgent } from './agent/dav-agent.js';
 import { AgentService } from './services/agent-service.js';
 import { ConfigService } from './services/config-service.js';

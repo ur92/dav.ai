@@ -1,7 +1,7 @@
 import { DavAgentState, PendingAction } from '../../types/state.js';
 import { StageContext } from './stage-context.js';
 import { logger } from '../../utils/logger.js';
-import { Neo4jTools } from '../../tools/neo4j-tools.js';
+import { Neo4jTools } from '../../utils/neo4j-tools.js';
 
 /**
  * Creates the execute_tool node handler

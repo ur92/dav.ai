@@ -1,5 +1,5 @@
 import neo4j from 'neo4j-driver';
-import { Neo4jTools } from '../tools/neo4j-tools.js';
+import { Neo4jTools } from '../utils/neo4j-tools.js';
 import { ConfigService } from './config-service.js';
 
 export interface GraphNode {
@@ -140,6 +140,116 @@ export class GraphService {
     } catch (error) {
       await neo4jTools.close();
       throw error;
+    }
+  }
+
+  /**
+   * Get graph counts (nodes and edges) for a specific session
+   * This is more efficient than querying the full graph
+   */
+  static async getGraphCounts(sessionId: string): Promise<{ nodes: number; edges: number }> {
+    const config = ConfigService.getConfig();
+    const neo4jTools = new Neo4jTools(config.neo4jUri, config.neo4jUser, config.neo4jPassword);
+
+    try {
+      const driver = (neo4jTools as any).driver;
+      const session = driver.session();
+
+      // Count nodes for this session
+      const nodeCountResult = await session.run(
+        `MATCH (n:State {sessionId: $sessionId}) RETURN count(n) as count`,
+        { sessionId }
+      );
+      const nodeCount = nodeCountResult.records[0]?.get('count')?.toNumber() || 0;
+
+      // Count edges for this session
+      const edgeCountResult = await session.run(
+        `MATCH (n:State {sessionId: $sessionId})-[r:TRANSITIONED_BY {sessionId: $sessionId}]->(m:State {sessionId: $sessionId}) RETURN count(r) as count`,
+        { sessionId }
+      );
+      const edgeCount = edgeCountResult.records[0]?.get('count')?.toNumber() || 0;
+
+      await session.close();
+      await neo4jTools.close();
+
+      return { nodes: nodeCount, edges: edgeCount };
+    } catch (error) {
+      await neo4jTools.close();
+      // Return zeros if there's an error (session might not have graph data yet)
+      return { nodes: 0, edges: 0 };
+    }
+  }
+
+  /**
+   * Get graph counts for multiple sessions efficiently
+   */
+  static async getGraphCountsForSessions(sessionIds: string[]): Promise<Map<string, { nodes: number; edges: number }>> {
+    const config = ConfigService.getConfig();
+    const neo4jTools = new Neo4jTools(config.neo4jUri, config.neo4jUser, config.neo4jPassword);
+    const countsMap = new Map<string, { nodes: number; edges: number }>();
+
+    if (sessionIds.length === 0) {
+      await neo4jTools.close();
+      return countsMap;
+    }
+
+    try {
+      const driver = (neo4jTools as any).driver;
+      const dbSession = driver.session();
+
+      // Get counts for all sessions in a single query
+      const nodeCountsResult = await dbSession.run(
+        `MATCH (n:State) 
+         WHERE n.sessionId IN $sessionIds 
+         RETURN n.sessionId as sessionId, count(n) as count`,
+        { sessionIds }
+      );
+
+      nodeCountsResult.records.forEach((record: any) => {
+        const sessionId = record.get('sessionId');
+        const count = record.get('count')?.toNumber() || 0;
+        if (!countsMap.has(sessionId)) {
+          countsMap.set(sessionId, { nodes: 0, edges: 0 });
+        }
+        countsMap.get(sessionId)!.nodes = count;
+      });
+
+      // Get edge counts for all sessions
+      // Group by the sessionId from the relationship (edges belong to a session)
+      const edgeCountsResult = await dbSession.run(
+        `MATCH (n:State)-[r:TRANSITIONED_BY]->(m:State) 
+         WHERE r.sessionId IN $sessionIds
+         RETURN r.sessionId as sessionId, count(r) as count`,
+        { sessionIds }
+      );
+
+      edgeCountsResult.records.forEach((record: any) => {
+        const sessionId = record.get('sessionId');
+        const count = record.get('count')?.toNumber() || 0;
+        if (!countsMap.has(sessionId)) {
+          countsMap.set(sessionId, { nodes: 0, edges: 0 });
+        }
+        countsMap.get(sessionId)!.edges = count;
+      });
+
+      // Ensure all sessionIds have entries (even if they have 0 counts)
+      sessionIds.forEach((sessionId) => {
+        if (!countsMap.has(sessionId)) {
+          countsMap.set(sessionId, { nodes: 0, edges: 0 });
+        }
+      });
+
+      await dbSession.close();
+      await neo4jTools.close();
+
+      return countsMap;
+    } catch (error) {
+      await neo4jTools.close();
+      // Return empty counts for all sessions if there's an error
+      sessionIds.forEach((sessionId) => {
+        countsMap.set(sessionId, { nodes: 0, edges: 0 });
+      });
+      return countsMap;
     }
   }
 }

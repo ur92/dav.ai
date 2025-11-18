@@ -41,8 +41,7 @@ export function createExecuteStage(context: StageContext) {
       
       // Check if we've already executed this exact transition in this session
       if (context.executedTransitions.has(transitionKey)) {
-        logger.info('EXECUTE', `Skipping duplicate transition: ${fromUrl} -> [${batchDescription}]`);
-        context.emitDecision(`⏭️ Skipping duplicate action sequence`);
+        logger.info('EXECUTE', `Skipping duplicate transition: ${fromUrl} -> [${batchDescription}]`, undefined, context.sessionId);
         
         // Still need to observe the current state to continue exploration
         const currentObservation = await context.browserTools.observe();
@@ -55,8 +54,7 @@ export function createExecuteStage(context: StageContext) {
         };
       }
 
-      logger.info('EXECUTE', `Executing ${actionsToExecute.length} action(s) in batch...`);
-      context.emitDecision(`⚙️ Executing ${actionsToExecute.length} action(s) in batch...`);
+      logger.info('EXECUTE', `Executing ${actionsToExecute.length} action(s) in batch...`, undefined, context.sessionId);
 
       const executedActions: string[] = [];
       let finalUrl = fromUrl;
@@ -64,7 +62,7 @@ export function createExecuteStage(context: StageContext) {
       // Execute all actions in sequence
       for (let i = 0; i < actionsToExecute.length; i++) {
         const action = actionsToExecute[i];
-        logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Executing ${action.tool}...`);
+        logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Executing ${action.tool}...`, undefined, context.sessionId);
 
         try {
           // Execute the browser action
@@ -73,10 +71,10 @@ export function createExecuteStage(context: StageContext) {
               if (!action.selector) {
                 throw new Error('Selector required for clickElement');
               }
-              context.emitDecision(`🖱️ [${i + 1}/${actionsToExecute.length}] Clicking: ${action.selector}`);
+              logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Clicking: ${action.selector}`, undefined, context.sessionId);
               await context.browserTools.clickElement(action.selector);
               executedActions.push(`${action.tool} on ${action.selector}`);
-              context.emitDecision(`✅ Clicked successfully`);
+              logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Clicked successfully`, undefined, context.sessionId);
               break;
 
             case 'typeText':
@@ -84,30 +82,30 @@ export function createExecuteStage(context: StageContext) {
                 throw new Error('Selector and text required for typeText');
               }
               const textPreview = action.text.length > 30 ? action.text.substring(0, 30) + '...' : action.text;
-              context.emitDecision(`⌨️ [${i + 1}/${actionsToExecute.length}] Typing into ${action.selector}: "${textPreview}"`);
+              logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Typing into ${action.selector}: "${textPreview}"`, undefined, context.sessionId);
               await context.browserTools.typeText(action.selector, action.text);
               executedActions.push(`${action.tool} on ${action.selector} with text "${action.text.substring(0, 20)}${action.text.length > 20 ? '...' : ''}"`);
-              context.emitDecision(`✅ Text entered successfully`);
+              logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Text entered successfully`, undefined, context.sessionId);
               break;
 
             case 'selectOption':
               if (!action.selector || !action.value) {
                 throw new Error('Selector and value required for selectOption');
               }
-              context.emitDecision(`📋 [${i + 1}/${actionsToExecute.length}] Selecting "${action.value}" from ${action.selector}`);
+              logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Selecting "${action.value}" from ${action.selector}`, undefined, context.sessionId);
               await context.browserTools.selectOption(action.selector, action.value);
               executedActions.push(`${action.tool} on ${action.selector} with value "${action.value}"`);
-              context.emitDecision(`✅ Option selected successfully`);
+              logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Option selected successfully`, undefined, context.sessionId);
               break;
 
             case 'navigate':
               if (!action.url) {
                 throw new Error('URL required for navigate');
               }
-              context.emitDecision(`🧭 [${i + 1}/${actionsToExecute.length}] Navigating to: ${action.url}`);
+              logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Navigating to: ${action.url}`, undefined, context.sessionId);
               await context.browserTools.navigate(action.url);
               executedActions.push(`${action.tool} to ${action.url}`);
-              context.emitDecision(`✅ Navigation successful`);
+              logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Navigation successful`, undefined, context.sessionId);
               break;
           }
 
@@ -119,27 +117,26 @@ export function createExecuteStage(context: StageContext) {
           logger.error('EXECUTE', `Error executing action ${i + 1}`, { 
             error: error instanceof Error ? error.message : String(error),
             action: action.tool,
-          });
-          context.emitDecision(`❌ Error executing action ${i + 1}: ${error instanceof Error ? error.message : String(error)}`);
+          }, context.sessionId);
           throw error;
         }
       }
 
       // Wait a bit for page to update after all actions
-      context.emitDecision('⏳ Waiting for page to update...');
+      logger.info('EXECUTE', 'Waiting for page to update...', undefined, context.sessionId);
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // Get the final URL after all actions
       finalUrl = context.browserTools.getCurrentUrl();
-      context.emitDecision(`🔗 Final URL after actions: ${finalUrl}`);
+      logger.info('EXECUTE', `Final URL after actions: ${finalUrl}`, undefined, context.sessionId);
 
       // Generate Cypher queries for State -> Actions -> State transition
       const queries: string[] = [];
 
       // Observe the current page state after batch execution
-      context.emitDecision('🔍 Observing page state after actions...');
+      logger.info('EXECUTE', 'Observing page state after actions...', undefined, context.sessionId);
       const newObservation = await context.browserTools.observe();
-      context.emitDecision(`📊 Page state captured (fingerprint: ${newObservation.fingerprint.substring(0, 8)}...)`);
+      logger.info('EXECUTE', `Page state captured (fingerprint: ${newObservation.fingerprint.substring(0, 8)}...)`, undefined, context.sessionId);
 
       // Mark this transition as executed
       context.executedTransitions.add(transitionKey);
@@ -158,8 +155,7 @@ export function createExecuteStage(context: StageContext) {
       );
 
       if (transitionAlreadyExists) {
-        logger.info('EXECUTE', `Transition already exists in database: ${fromUrl} -> ${finalUrl} with action "${batchDescription}". MERGE will handle duplicate.`);
-        context.emitDecision(`⚠️ This transition already exists in the graph database`);
+        logger.info('EXECUTE', `Transition already exists in database: ${fromUrl} -> ${finalUrl} with action "${batchDescription}". MERGE will handle duplicate.`, undefined, context.sessionId);
       }
 
       // Merge the "from" state
@@ -175,9 +171,9 @@ export function createExecuteStage(context: StageContext) {
       );
 
       if (!transitionAlreadyExists) {
-        context.emitDecision(`💾 Prepared ${queries.length} Neo4j queries for state transition`);
+        logger.info('EXECUTE', `Prepared ${queries.length} Neo4j queries for state transition`, undefined, context.sessionId);
       } else {
-        context.emitDecision(`💾 Prepared ${queries.length} Neo4j queries (MERGE will skip duplicate)`);
+        logger.info('EXECUTE', `Prepared ${queries.length} Neo4j queries (MERGE will skip duplicate)`, undefined, context.sessionId);
       }
       const historyEntry = transitionAlreadyExists
         ? `[EXECUTE] Batch executed: ${executedActions.join(' → ')}. Transitioned from ${fromUrl} to ${finalUrl}. [DUPLICATE TRANSITION - SKIPPED]`
@@ -192,7 +188,7 @@ export function createExecuteStage(context: StageContext) {
         pendingAction: null, // Clear for backward compatibility
       };
     } catch (error) {
-      logger.error('EXECUTE', 'Error in batch execution', { error: error instanceof Error ? error.message : String(error) });
+      logger.error('EXECUTE', 'Error in batch execution', { error: error instanceof Error ? error.message : String(error) }, context.sessionId);
       return {
         explorationStatus: 'FAILURE',
         actionHistory: [`[EXECUTE] Error: ${error instanceof Error ? error.message : String(error)}`],

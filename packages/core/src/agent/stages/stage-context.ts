@@ -15,7 +15,6 @@ export interface StageContext {
   loginSuccessful: { value: boolean };
   executedTransitions: Set<string>;
   sessionId: string;
-  emitDecision: (decision: string) => void;
   onTokenUsageCallback?: (inputTokens: number, outputTokens: number) => void;
 }
 

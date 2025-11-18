@@ -13,18 +13,17 @@ export function createPersistStage(context: StageContext) {
     }
 
     try {
-      logger.info('PERSIST', `Executing ${state.neo4jQueries.length} Neo4j queries...`);
-      context.emitDecision(`💾 Persisting ${state.neo4jQueries.length} state transition(s) to graph database...`);
+      logger.info('PERSIST', `Executing ${state.neo4jQueries.length} Neo4j queries...`, undefined, context.sessionId);
+      logger.info('PERSIST', `Persisting ${state.neo4jQueries.length} state transition(s) to graph database...`, undefined, context.sessionId);
       await context.neo4jTools.executeQueries(state.neo4jQueries);
-      context.emitDecision(`✅ Successfully persisted to graph database`);
+      logger.info('PERSIST', `Successfully persisted to graph database`, undefined, context.sessionId);
 
       return {
         neo4jQueries: [], // Clear queries after persistence
         actionHistory: [`[PERSIST] Successfully persisted ${state.neo4jQueries.length} queries to Neo4j.`],
       };
     } catch (error) {
-      logger.error('PERSIST', 'Error', { error: error instanceof Error ? error.message : String(error) });
-      context.emitDecision(`❌ Error persisting to graph database: ${error instanceof Error ? error.message : String(error)}`);
+      logger.error('PERSIST', 'Error persisting to graph database', { error: error instanceof Error ? error.message : String(error) }, context.sessionId);
       return {
         actionHistory: [`[PERSIST] Error: ${error instanceof Error ? error.message : String(error)}`],
         // Don't fail the flow on persistence errors, just log them

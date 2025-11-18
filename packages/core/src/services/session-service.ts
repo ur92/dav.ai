@@ -17,7 +17,13 @@ export interface Session {
   url: string;
   maxIterations: number;
   createdAt: Date;
-  decisions: string[]; // Agent decisions for frontend display
+  logs?: Array<{
+    timestamp: string;
+    level: 'INFO' | 'WARN' | 'ERROR';
+    context: string;
+    message: string;
+    data?: any;
+  }>; // CORE logs for frontend display
   tokenUsage?: {
     exploration: {
       inputTokens: number;
@@ -217,22 +223,13 @@ export class SessionService {
       url: result.url,
       maxIterations: result.maxIterations,
       createdAt: new Date(),
-      decisions: [],
+      logs: [],
       tokenUsage: {
         exploration: { inputTokens: 0, outputTokens: 0 },
         userStories: { inputTokens: 0, outputTokens: 0 },
         total: { inputTokens: 0, outputTokens: 0 },
       },
     };
-
-    // Set up decision callback to store decisions in session
-    result.agent.setDecisionCallback((decision: string) => {
-      session.decisions.push(decision);
-      // Keep only last 100 decisions to avoid memory issues
-      if (session.decisions.length > 100) {
-        session.decisions = session.decisions.slice(-100);
-      }
-    });
 
     // Set up token usage callback to track exploration tokens
     result.agent.setTokenUsageCallback((inputTokens: number, outputTokens: number) => {
@@ -267,8 +264,6 @@ export class SessionService {
         session.status = 'error';
         // Optionally store error in session
         (session as any).error = error.message;
-        // Emit error decision
-        session.decisions.push(`❌ Session error: ${error.message}`);
         await this.saveSessionMetadata(session);
       });
 

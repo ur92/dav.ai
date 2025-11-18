@@ -11,11 +11,10 @@ export function createObserveStage(context: StageContext) {
   return async (state: DavAgentState): Promise<Partial<DavAgentState>> => {
     try {
       const url = state.currentUrl;
-      logger.info('OBSERVE', `Navigating to: ${url}`);
-      context.emitDecision(`🔍 Analyzing page: ${url}`);
+      logger.info('OBSERVE', `Navigating to: ${url}`, undefined, context.sessionId);
 
       const observation = await context.browserTools.observe(url);
-      context.emitDecision(`✅ Page loaded successfully`);
+      logger.info('OBSERVE', `Page loaded successfully`, undefined, context.sessionId);
 
       // Count actionable elements (subtract 1 for the header line)
       const elementCount = observation.domState.split('\n').length - 1;
@@ -26,9 +25,8 @@ export function createObserveStage(context: StageContext) {
       const isCycle = visitedFingerprints.includes(observation.fingerprint);
       
       if (isCycle) {
-        logger.info('OBSERVE', `Cycle detected! Fingerprint ${observation.fingerprint} was visited before. Ending exploration gracefully.`);
+        logger.info('OBSERVE', `Cycle detected! Fingerprint ${observation.fingerprint} was visited before. Ending exploration gracefully.`, undefined, context.sessionId);
         historyEntry += ' [CYCLE DETECTED - Exploration complete]';
-        context.emitDecision('🔄 Cycle detected');
         return {
           currentUrl: observation.currentUrl,
           domState: observation.domState,
@@ -46,16 +44,12 @@ export function createObserveStage(context: StageContext) {
         context.loginSuccessful.value = true;
         // Clear credentials to prevent further login attempts
         context.credentials.value = undefined;
-        logger.info('OBSERVE', 'Login successful - credentials disabled to prevent reuse');
-        context.emitDecision('✅ Login successful - credentials disabled');
+        logger.info('OBSERVE', 'Login successful - credentials disabled to prevent reuse', undefined, context.sessionId);
       }
       
       if (isLoginScreen && context.credentials.value?.username && context.credentials.value?.password && !context.loginAttempted.has(observation.currentUrl) && !context.loginSuccessful.value) {
         historyEntry += ' [LOGIN DETECTED - Will use credentials]';
-        logger.info('OBSERVE', 'Login screen detected, credentials available');
-        context.emitDecision('🔐 Login form detected - Credentials available for auto-login');
-      } else if (isLoginScreen) {
-        context.emitDecision('🔐 Login form detected');
+        logger.info('OBSERVE', 'Login screen detected, credentials available', undefined, context.sessionId);
       }
       
       // Extract and log key page information
@@ -65,13 +59,12 @@ export function createObserveStage(context: StageContext) {
       const links = domLines.filter(line => line.toLowerCase().includes('a href')).length;
       
       if (buttons > 0 || inputs > 0 || links > 0) {
-        context.emitDecision(`📋 Page elements: ${buttons} buttons, ${inputs} inputs, ${links} links`);
+        logger.info('OBSERVE', `Page elements: ${buttons} buttons, ${inputs} inputs, ${links} links`, undefined, context.sessionId);
       }
       
       // Log the DOM state for debugging
-      logger.info('OBSERVE', `DOM State (first 500 chars): ${observation.domState.substring(0, 500)}`);
-      logger.info('OBSERVE', `Current URL: ${observation.currentUrl}, Fingerprint: ${observation.fingerprint}`);
-      context.emitDecision(`🔗 Current URL: ${observation.currentUrl}`);
+      logger.info('OBSERVE', `DOM State (first 500 chars): ${observation.domState.substring(0, 500)}`, undefined, context.sessionId);
+      logger.info('OBSERVE', `Current URL: ${observation.currentUrl}, Fingerprint: ${observation.fingerprint}`, undefined, context.sessionId);
 
       return {
         currentUrl: observation.currentUrl,
@@ -80,8 +73,7 @@ export function createObserveStage(context: StageContext) {
         visitedFingerprints: [...visitedFingerprints, observation.fingerprint],
       };
     } catch (error) {
-      logger.error('OBSERVE', 'Error', { error: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined });
-      context.emitDecision(`❌ Error analyzing page: ${error instanceof Error ? error.message : String(error)}`);
+      logger.error('OBSERVE', 'Error analyzing page', { error: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined }, context.sessionId);
       return {
         explorationStatus: 'FAILURE',
         actionHistory: [`[OBSERVE] Error: ${error instanceof Error ? error.message : String(error)}`],

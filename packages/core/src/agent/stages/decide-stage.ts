@@ -28,7 +28,7 @@ export function createDecideStage(context: StageContext) {
 
       // For login forms, return batch actions directly without LLM call
       if (shouldAutoLogin) {
-        context.emitDecision('🤖 Decision: Auto-login detected - Preparing login sequence');
+        logger.info('DECIDE', 'Auto-login detected - Preparing login sequence', undefined, context.sessionId);
         const usernameSelector = findLoginField(state.domState, 'username');
         const passwordSelector = findLoginField(state.domState, 'password');
         const submitSelector = findSubmitButton(state.domState);
@@ -38,10 +38,7 @@ export function createDecideStage(context: StageContext) {
             usernameSelector,
             passwordSelector,
             submitSelector,
-          });
-
-          context.emitDecision(`🔍 Found login fields: username (${usernameSelector}), password (${passwordSelector})`);
-          context.emitDecision(`🔍 Found submit button: ${submitSelector}`);
+          }, context.sessionId);
 
           const batchActions: PendingAction[] = [
             {
@@ -60,17 +57,17 @@ export function createDecideStage(context: StageContext) {
             },
           ];
 
-          context.emitDecision('🔐 Auto-login');
+          logger.info('DECIDE', 'Auto-login batch actions prepared', undefined, context.sessionId);
           return {
             pendingActions: batchActions,
             explorationStatus: 'CONTINUE',
             actionHistory: [`[DECIDE] Auto-login: Batch actions prepared (fill username, fill password, click login)`],
           };
         } else {
-          context.emitDecision('⚠️ Auto-login: Could not find all required login fields, falling back to LLM');
+          logger.warn('DECIDE', 'Auto-login: Could not find all required login fields, falling back to LLM', undefined, context.sessionId);
         }
       } else {
-        context.emitDecision('🤖 Decision: Analyzing page with LLM to determine next action...');
+        logger.info('DECIDE', 'Analyzing page with LLM to determine next action', undefined, context.sessionId);
       }
 
       const credentialsHint = context.credentials.value?.username && context.credentials.value?.password && !context.loginSuccessful.value
@@ -132,13 +129,13 @@ Be concise and focus on exploring new paths. Batch related actions together when
         });
       }
 
-      logger.info('DECIDE', `LLM Response: ${content}`);
+      logger.info('DECIDE', `LLM Response: ${content}`, undefined, context.sessionId);
 
       // Parse LLM response
       let decision: Partial<DavAgentState>;
 
       if (content.includes('FLOW_END') || content.includes('"status": "FLOW_END"')) {
-        context.emitDecision('🏁 Flow ended');
+        logger.info('DECIDE', 'Flow ended', undefined, context.sessionId);
         decision = {
           explorationStatus: 'FLOW_END',
           pendingAction: null,
@@ -162,25 +159,7 @@ Be concise and focus on exploring new paths. Batch related actions together when
                 url: action.url,
               }));
 
-              // Only emit decision for batch actions (more interesting than single actions)
-              // Format: concise action descriptions
-              const actionDescriptions = batchActions.map(a => {
-                if (a.tool === 'clickElement') {
-                  // Extract meaningful part of selector (e.g., #login-button -> login-button)
-                  const selector = a.selector || 'element';
-                  const cleanSelector = selector.replace(/^[#.]/, '').replace(/\[.*?\]/g, '');
-                  return cleanSelector || 'element';
-                }
-                if (a.tool === 'typeText') {
-                  const selector = a.selector || 'field';
-                  const cleanSelector = selector.replace(/^[#.]/, '').replace(/\[.*?\]/g, '');
-                  return `fill ${cleanSelector}`;
-                }
-                if (a.tool === 'selectOption') return `select ${a.value}`;
-                if (a.tool === 'navigate') return `navigate`;
-                return a.tool;
-              });
-              context.emitDecision(`${actionDescriptions.join(' → ')}`);
+              logger.info('DECIDE', `Selected ${batchActions.length} batch actions: ${batchActions.map(a => a.tool).join(', ')}`, undefined, context.sessionId);
 
               decision = {
                 pendingActions: batchActions,
@@ -228,7 +207,7 @@ Be concise and focus on exploring new paths. Batch related actions together when
 
       return decision;
     } catch (error) {
-      logger.error('DECIDE', 'Error', { error: error instanceof Error ? error.message : String(error) });
+      logger.error('DECIDE', 'Error', { error: error instanceof Error ? error.message : String(error) }, context.sessionId);
       return {
         explorationStatus: 'FAILURE',
         actionHistory: [`[DECIDE] Error: ${error instanceof Error ? error.message : String(error)}`],

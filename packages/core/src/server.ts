@@ -8,6 +8,7 @@ import { UserStoryService } from './services/user-story-service.js';
 import { RetryService } from './services/retry-service.js';
 import type { DavAgentState } from './types/state.js';
 import { logger } from './utils/logger.js';
+import type { LogEntry } from './utils/logger.js';
 import * as dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -162,15 +163,11 @@ app.post('/explore', async (req, res) => {
           status: finalState.explorationStatus,
           finalUrl: finalState.currentUrl,
           actionCount: finalState.actionHistory.length,
-        });
-
-        // Emit exploration completion decision
-        session.decisions.push(`✅ Exploration completed (${finalState.actionHistory.length} actions)`);
+        }, session.sessionId);
 
         // Generate user stories from the exploration graph
         try {
-          logger.info('Server', 'Generating user stories from exploration graph...', { sessionId: session.sessionId });
-          session.decisions.push('📖 Compiling user stories...');
+          logger.info('Server', 'Generating user stories from exploration graph...', { sessionId: session.sessionId }, session.sessionId);
           
           const userStoryService = new UserStoryService();
           
@@ -188,7 +185,7 @@ app.post('/explore', async (req, res) => {
                 logger.error('Server', 'Failed to update token usage', {
                   sessionId: session.sessionId,
                   error: error instanceof Error ? error.message : String(error),
-                });
+                }, session.sessionId);
               });
             }
           });
@@ -210,33 +207,26 @@ app.post('/explore', async (req, res) => {
             await session.neo4jTools.saveUserStories(session.sessionId, userStories);
             logger.info('Server', 'User stories persisted to Neo4j', {
               sessionId: session.sessionId,
-            });
+            }, session.sessionId);
           } catch (error) {
             logger.error('Server', 'Failed to persist user stories to Neo4j', {
               sessionId: session.sessionId,
               error: error instanceof Error ? error.message : String(error),
-            });
+            }, session.sessionId);
             // Don't fail if persistence fails, user stories are still in memory
           }
           
           logger.info('Server', 'User stories generated successfully', {
             sessionId: session.sessionId,
             storyCount: userStories.stories.length,
-          });
-          
-          // Emit user story compilation completion
-          session.decisions.push(`📖 User stories compiled (${userStories.stories.length} stories)`);
+          }, session.sessionId);
         } catch (error) {
           logger.error('Server', 'Failed to generate user stories', {
             sessionId: session.sessionId,
             error: error instanceof Error ? error.message : String(error),
-          });
-          session.decisions.push('❌ Failed to compile user stories');
+          }, session.sessionId);
           // Don't fail the session if user story generation fails
         }
-
-        // Emit session completion
-        session.decisions.push('🎉 Session completed');
 
         // Session status will be updated by SessionService
       })
@@ -245,7 +235,7 @@ app.post('/explore', async (req, res) => {
           sessionId: session.sessionId,
           error: error.message,
           stack: error.stack,
-        });
+        }, session.sessionId);
         // Store error in session for debugging
         (session as any).error = {
           message: error.message,
@@ -287,13 +277,13 @@ app.get('/session/:sessionId', async (req, res) => {
         }
 
         // Return session metadata from Neo4j
-        // Note: For persisted sessions, we don't have currentState or decisions
+        // Note: For persisted sessions, we don't have currentState or logs
         // These are only available for in-memory sessions
         const response: any = {
           sessionId: metadata.sessionId,
           status: metadata.status,
           currentState: undefined,
-          decisions: [],
+          logs: [], // Logs are only available for in-memory sessions
           tokenUsage: metadata.tokenUsage,
         };
         
@@ -325,12 +315,15 @@ app.get('/session/:sessionId', async (req, res) => {
       }
     }
 
+    // Get logs from logger for this session
+    const logs = logger.getSessionLogs(sessionId);
+    
     // Session is in memory, return full data
     const response: any = {
       sessionId,
       status: session.status,
       currentState: session.currentState,
-      decisions: session.decisions || [], // Include agent decisions
+      logs: logs, // Include CORE logs
       tokenUsage: session.tokenUsage, // Include token usage
     };
     

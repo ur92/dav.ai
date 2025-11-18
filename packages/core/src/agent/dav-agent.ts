@@ -26,7 +26,6 @@ export class DavAgent {
   private loginAttempted: Set<string> = new Set(); // Track URLs where login was attempted
   private loginSuccessful: boolean = false; // Track if login was successful
   private executedTransitions: Set<string> = new Set(); // Track executed transitions to avoid duplicates
-  private onDecisionCallback?: (decision: string) => void; // Callback for emitting decisions to frontend
   private onTokenUsageCallback?: (inputTokens: number, outputTokens: number) => void; // Callback for tracking token usage
   private stageContext: StageContext;
 
@@ -76,7 +75,6 @@ export class DavAgent {
       loginSuccessful: { value: this.loginSuccessful },
       executedTransitions: this.executedTransitions,
       sessionId: this.sessionId,
-      emitDecision: this.emitDecision.bind(this),
       onTokenUsageCallback: this.onTokenUsageCallback,
     } as StageContext;
 
@@ -179,15 +177,6 @@ export class DavAgent {
   }
 
   /**
-   * Set callback for emitting decisions to frontend
-   */
-  setDecisionCallback(callback: (decision: string) => void): void {
-    this.onDecisionCallback = callback;
-    // Update stage context with new callback
-    this.stageContext.emitDecision = this.emitDecision.bind(this);
-  }
-
-  /**
    * Set callback for tracking token usage
    */
   setTokenUsageCallback(callback: (inputTokens: number, outputTokens: number) => void): void {
@@ -205,28 +194,19 @@ export class DavAgent {
   }
 
   /**
-   * Emit a decision to the frontend (if callback is set)
-   */
-  private emitDecision(decision: string): void {
-    if (this.onDecisionCallback) {
-      this.onDecisionCallback(decision);
-    }
-  }
-
-  /**
    * Run the agent starting from a given URL
    */
   async run(startingUrl: string, maxIterations: number = 20): Promise<DavAgentState> {
-    logger.info('AGENT', `[run] Starting run method`, {
+      logger.info('AGENT', `[run] Starting run method`, {
       startingUrl,
       maxIterations,
       note: maxIterations === 20 ? 'Using default value (20) - check if value was passed correctly' : 'Using provided value',
-    });
+    }, this.sessionId);
     
     try {
-      logger.info('AGENT', '[run] Compiling graph...');
+      logger.info('AGENT', '[run] Compiling graph...', undefined, this.sessionId);
       const compiledGraph = this.compile();
-      logger.info('AGENT', '[run] Graph compiled successfully');
+      logger.info('AGENT', '[run] Graph compiled successfully', undefined, this.sessionId);
 
               const initialState: DavAgentState = {
                 currentUrl: startingUrl,
@@ -242,14 +222,13 @@ export class DavAgent {
       let currentState = initialState;
       let iterations = 0;
 
-      logger.info('AGENT', `[run] Starting exploration from: ${startingUrl}`);
-      this.emitDecision(`🚀 Starting exploration from: ${startingUrl}`);
-      this.emitDecision(`📊 Maximum iterations: ${maxIterations}`);
+      logger.info('AGENT', `[run] Starting exploration from: ${startingUrl}`, undefined, this.sessionId);
+      logger.info('AGENT', `[run] Maximum iterations: ${maxIterations}`, undefined, this.sessionId);
 
       while (currentState.explorationStatus === 'CONTINUE' && iterations < maxIterations) {
         try {
-          logger.info('AGENT', `[run] Invoking graph for iteration ${iterations + 1}...`);
-          this.emitDecision(`\n━━━ Iteration ${iterations + 1}/${maxIterations} ━━━`);
+          logger.info('AGENT', `[run] Invoking graph for iteration ${iterations + 1}...`, undefined, this.sessionId);
+          logger.info('AGENT', `━━━ Iteration ${iterations + 1}/${maxIterations} ━━━`, undefined, this.sessionId);
           // Set recursion limit to allow for multiple graph steps per iteration
           // Each iteration can involve: observe -> decide -> execute -> persist (4 steps)
           // Use a high recursion limit to prevent premature termination
@@ -259,8 +238,7 @@ export class DavAgent {
           currentState = result as DavAgentState;
           iterations++;
 
-          logger.info('AGENT', `[run] Iteration ${iterations}/${maxIterations} - Status: ${currentState.explorationStatus}`);
-          this.emitDecision(`✓ Iteration ${iterations} complete - Status: ${currentState.explorationStatus}`);
+          logger.info('AGENT', `[run] Iteration ${iterations}/${maxIterations} - Status: ${currentState.explorationStatus}`, undefined, this.sessionId);
         } catch (error) {
           // Check if it's a recursion limit error - if so, treat as graceful completion
           if (error instanceof Error && error.message.includes('Recursion limit')) {
@@ -286,23 +264,22 @@ export class DavAgent {
           iterations,
           maxIterations,
           limitReached: true,
-        });
-        this.emitDecision(`⏱️ Reached maximum iterations limit (${maxIterations})`);
+        }, this.sessionId);
         currentState.explorationStatus = 'FLOW_END';
       }
 
-      logger.info('AGENT', `[run] Exploration finished. Final status: ${currentState.explorationStatus}, Iterations: ${iterations}`);
-      this.emitDecision(`\n━━━ Exploration Complete ━━━`);
-      this.emitDecision(`📊 Final status: ${currentState.explorationStatus}`);
-      this.emitDecision(`📈 Total iterations: ${iterations}`);
-      this.emitDecision(`🔗 Final URL: ${currentState.currentUrl}`);
-      this.emitDecision(`📝 Total actions: ${currentState.actionHistory.length}`);
+      logger.info('AGENT', `[run] Exploration finished. Final status: ${currentState.explorationStatus}, Iterations: ${iterations}`, undefined, this.sessionId);
+      logger.info('AGENT', `━━━ Exploration Complete ━━━`, undefined, this.sessionId);
+      logger.info('AGENT', `Final status: ${currentState.explorationStatus}`, undefined, this.sessionId);
+      logger.info('AGENT', `Total iterations: ${iterations}`, undefined, this.sessionId);
+      logger.info('AGENT', `Final URL: ${currentState.currentUrl}`, undefined, this.sessionId);
+      logger.info('AGENT', `Total actions: ${currentState.actionHistory.length}`, undefined, this.sessionId);
       return currentState;
     } catch (error) {
       logger.error('AGENT', '[run] Fatal error in run method', {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
-      });
+      }, this.sessionId);
       throw error;
     }
   }

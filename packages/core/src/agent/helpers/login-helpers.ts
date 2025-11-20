@@ -104,4 +104,3 @@ export function findSubmitButton(domState: string): string | null {
   // Fallback: common selectors
   return 'button[type="submit"], .login-button, button:has-text("Login"), button:has-text("Sign in")';
 }
-

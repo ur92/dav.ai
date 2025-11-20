@@ -99,13 +99,9 @@ export function createExecuteStage(context: StageContext) {
               break;
 
             case 'navigate':
-              if (!action.url) {
-                throw new Error('URL required for navigate');
-              }
-              logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Navigating to: ${action.url}`, undefined, context.sessionId);
-              await context.browserTools.navigate(action.url);
-              executedActions.push(`${action.tool} to ${action.url}`);
-              logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Navigation successful`, undefined, context.sessionId);
+              // Navigation by URL is disabled - agent must interact with UI elements only
+              logger.error('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Navigation by URL is disabled. Use clickElement to interact with links/buttons instead.`, undefined, context.sessionId);
+              throw new Error('Navigation by URL is disabled. You must interact with the webapp through UI elements (buttons, links, etc.) instead of changing URLs directly.');
               break;
           }
 
@@ -122,9 +118,14 @@ export function createExecuteStage(context: StageContext) {
         }
       }
 
-      // Wait a bit for page to update after all actions
-      logger.info('EXECUTE', 'Waiting for page to update...', undefined, context.sessionId);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Wait for network to be idle after all actions (waits for 500ms of no requests)
+      logger.info('EXECUTE', 'Waiting for network to be idle (500ms of no active requests)...', undefined, context.sessionId);
+      try {
+        await context.browserTools.waitForNetworkIdle(30000);
+        logger.info('EXECUTE', 'Network is idle (500ms of no requests completed)', undefined, context.sessionId);
+      } catch (error) {
+        logger.warn('EXECUTE', 'Network idle timeout - proceeding anyway', { error: error instanceof Error ? error.message : String(error) }, context.sessionId);
+      }
 
       // Get the final URL after all actions
       finalUrl = context.browserTools.getCurrentUrl();

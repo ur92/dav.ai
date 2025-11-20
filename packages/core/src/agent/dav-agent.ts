@@ -26,6 +26,7 @@ export class DavAgent {
   private loginAttempted: Set<string> = new Set(); // Track URLs where login was attempted
   private loginSuccessful: boolean = false; // Track if login was successful
   private executedTransitions: Set<string> = new Set(); // Track executed transitions to avoid duplicates
+  private interactedModalSelectors: Set<string> = new Set(); // Track which modal elements have been interacted with
   private onTokenUsageCallback?: (inputTokens: number, outputTokens: number) => void; // Callback for tracking token usage
   private stageContext: StageContext;
 
@@ -74,6 +75,7 @@ export class DavAgent {
       loginAttempted: this.loginAttempted,
       loginSuccessful: { value: this.loginSuccessful },
       executedTransitions: this.executedTransitions,
+      interactedModalSelectors: this.interactedModalSelectors,
       sessionId: this.sessionId,
       onTokenUsageCallback: this.onTokenUsageCallback,
     } as StageContext;

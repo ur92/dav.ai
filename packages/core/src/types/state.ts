@@ -32,5 +32,7 @@ export interface SimplifiedElement {
   selector: string;
   type?: string;
   role?: string;
+  isInModal?: boolean;
+  isRequired?: boolean;
 }
 

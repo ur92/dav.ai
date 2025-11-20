@@ -14,6 +14,7 @@ export interface StageContext {
   loginAttempted: Set<string>;
   loginSuccessful: { value: boolean };
   executedTransitions: Set<string>;
+  interactedModalSelectors: Set<string>; // Track which modal elements have been interacted with
   sessionId: string;
   onTokenUsageCallback?: (inputTokens: number, outputTokens: number) => void;
 }

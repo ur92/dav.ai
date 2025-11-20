@@ -1,6 +1,7 @@
 import { Browser, Page, chromium } from 'playwright';
 import { SimplifiedElement } from '../types/state.js';
 import { createHash } from 'crypto';
+import { IGNORE_SELECTORS } from '../agent/helpers/ignore-selectors.js';
 
 /**
  * BrowserTools - Handles all browser automation operations
@@ -18,9 +19,9 @@ export class BrowserTools {
    * Initialize browser and create a new page
    */
   async initialize(): Promise<void> {
-    const windowWidth = 900;
-    // Use 16:10 aspect ratio (common modern display ratio)
-    const windowHeight = Math.round(windowWidth * 10 / 16);
+    const windowWidth = 1200;
+    // Use 16:9 aspect ratio (common modern display ratio)
+    const windowHeight = Math.round(windowWidth * 9 / 16); // 675
     
     this.browser = await chromium.launch({
       headless: this.headless,
@@ -49,7 +50,7 @@ export class BrowserTools {
    * Observe state - Navigate to URL and extract Simplified/Structured DOM
    * This is critical for minimizing LLM token cost and focusing attention
    */
-  async observe(url?: string): Promise<{ domState: string; currentUrl: string; fingerprint: string }> {
+  async observe(url?: string, sessionId?: string, stepIndex?: number): Promise<{ domState: string; currentUrl: string; fingerprint: string }> {
     if (!this.page) {
       throw new Error('Browser not initialized. Call initialize() first.');
     }
@@ -75,87 +76,175 @@ export class BrowserTools {
 
     // Extract simplified DOM using page.evaluate()
     // Note: This code runs in the browser context where DOM types are available
-    const simplifiedElements = await this.page.evaluate(() => {
-      const elements: SimplifiedElement[] = [];
-
-      // Query for all actionable elements and content elements
-      const selectors = [
-        'a[href]',
-        'button',
-        'input',
-        'textarea',
-        '[role="button"]',
-        '[role="link"]',
-        'select',
-        '[onclick]',
-        'p',
-        'span',
-        'h1',
-        'h2',
-        'h3',
-        'h4',
-        'h5',
-        'h6',
-      ];
-
-      selectors.forEach((selector) => {
-        const nodes = document.querySelectorAll(selector);
-        nodes.forEach((node: Element) => {
-          const element = node as HTMLElement;
-          
-          // Skip hidden elements
-          if (element.offsetParent === null && !element.hasAttribute('aria-hidden')) {
-            return;
+    // Using string-based evaluation to avoid TypeScript metadata injection
+    // Pass ignore selectors as JSON string to avoid serialization issues
+    const ignoreSelectorsJson = JSON.stringify(IGNORE_SELECTORS);
+    const evaluateCode = `
+      (function() {
+        const elements = [];
+        const ignoreSelectors = ${ignoreSelectorsJson};
+        
+        function shouldIgnoreElement(element) {
+          for (var i = 0; i < ignoreSelectors.length; i++) {
+            var selector = ignoreSelectors[i];
+            try {
+              if (element.matches(selector)) {
+                return true;
+              }
+              var parent = element.parentElement;
+              while (parent && parent !== document.body) {
+                if (parent.matches(selector)) {
+                  return true;
+                }
+                parent = parent.parentElement;
+              }
+            } catch (e) {
+              continue;
+            }
           }
-
-          let text = '';
-          let selectorStr = '';
-
-          // Extract text/label
-          if (element.textContent) {
-            text = element.textContent.trim().substring(0, 30);
-          } else if (element.getAttribute('aria-label')) {
-            text = element.getAttribute('aria-label')!.substring(0, 30);
-          } else if (element.getAttribute('placeholder')) {
-            text = element.getAttribute('placeholder')!.substring(0, 30);
-          } else if (element.getAttribute('title')) {
-            text = element.getAttribute('title')!.substring(0, 30);
+          return false;
+        }
+        
+        function isInModal(element) {
+          let current = element;
+          while (current && current !== document.body) {
+            const role = current.getAttribute('role');
+            const ariaModal = current.getAttribute('aria-modal');
+            const className = current.className || '';
+            const classStr = String(className).toLowerCase();
+            const style = window.getComputedStyle(current);
+            
+            if (role === 'dialog' && ariaModal === 'true') {
+              return true;
+            }
+            
+            if (classStr.includes('dialog') || 
+                classStr.includes('modal') || 
+                classStr.includes('overlay') ||
+                classStr.includes('popup')) {
+              if (style.display !== 'none' && style.visibility !== 'hidden') {
+                return true;
+              }
+            }
+            
+            const zIndex = parseInt(style.zIndex || '0', 10);
+            if (zIndex > 1000 && style.position !== 'static') {
+              return true;
+            }
+            
+            current = current.parentElement;
           }
-
-          // Generate simplified selector (prefer #id, then [name], then simple CSS)
-          if (element.id) {
-            selectorStr = `#${element.id}`;
-          } else if (element.getAttribute('name')) {
-            selectorStr = `[name="${element.getAttribute('name')}"]`;
-          } else {
-            // Generate a simple CSS selector
-            const tag = element.tagName.toLowerCase();
-            // Sanitize class names - remove invalid CSS characters like =, :, etc.
-            const classes = element.className
-              ? `.${String(element.className)
-                  .split(' ')
-                  .filter((c: string) => c && !c.includes('=') && !c.includes(':'))
-                  .map((c: string) => c.replace(/[^a-zA-Z0-9_-]/g, '')) // Remove any remaining invalid chars
-                  .filter((c: string) => c.length > 0) // Remove empty strings after sanitization
-                  .join('.')}`
-              : '';
-            selectorStr = `${tag}${classes}`;
-          }
-
-          const simplified: SimplifiedElement = {
-            tag: element.tagName,
-            text: text || '(no text)',
-            selector: selectorStr,
-            type: element.getAttribute('type') || undefined,
-            role: element.getAttribute('role') || undefined,
-          };
-
-          elements.push(simplified);
+          return false;
+        }
+        
+        const selectors = [
+          'a[href]', 'button', 'input', 'textarea',
+          '[role="button"]', '[role="link"]', 'select', '[onclick]',
+          'p', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'
+        ];
+        
+        selectors.forEach(function(selector) {
+          const nodes = document.querySelectorAll(selector);
+          nodes.forEach(function(node) {
+            const element = node;
+            
+            // Skip ignored elements
+            if (shouldIgnoreElement(element)) {
+              return;
+            }
+            
+            if (element.offsetParent === null && !element.hasAttribute('aria-hidden')) {
+              return;
+            }
+            
+            let text = '';
+            let selectorStr = '';
+            
+            if (element.textContent) {
+              text = element.textContent.trim().substring(0, 30);
+            } else if (element.getAttribute('aria-label')) {
+              text = element.getAttribute('aria-label').substring(0, 30);
+            } else if (element.getAttribute('placeholder')) {
+              text = element.getAttribute('placeholder').substring(0, 30);
+            } else if (element.getAttribute('title')) {
+              text = element.getAttribute('title').substring(0, 30);
+            }
+            
+            if (element.id) {
+              selectorStr = '#' + element.id;
+            } else if (element.getAttribute('name')) {
+              selectorStr = '[name="' + element.getAttribute('name') + '"]';
+            } else {
+              const tag = element.tagName.toLowerCase();
+              const classes = element.className
+                ? '.' + String(element.className)
+                    .split(' ')
+                    .filter(function(c) { return c && !c.includes('=') && !c.includes(':'); })
+                    .map(function(c) { return c.replace(/[^a-zA-Z0-9_-]/g, ''); })
+                    .filter(function(c) { return c.length > 0; })
+                    .join('.')
+                : '';
+              selectorStr = tag + classes;
+            }
+            
+            const inModal = isInModal(element);
+            
+            // Check if field is required (marked with * or has required attribute)
+            let isRequired = false;
+            if (element.hasAttribute('required')) {
+              isRequired = true;
+            } else {
+              // Check if label or nearby text contains asterisk
+              let label = element.getAttribute('aria-label') || '';
+              let labelElement = element;
+              // Try to find associated label
+              if (element.id) {
+                const associatedLabel = document.querySelector('label[for="' + element.id + '"]');
+                if (associatedLabel) {
+                  label = associatedLabel.textContent || '';
+                  labelElement = associatedLabel;
+                }
+              }
+              // Check parent for label
+              let parent = element.parentElement;
+              while (parent && parent !== document.body && !label.includes('*')) {
+                if (parent.tagName === 'LABEL') {
+                  label = parent.textContent || '';
+                  labelElement = parent;
+                  break;
+                }
+                parent = parent.parentElement;
+              }
+              // Check if label text contains asterisk
+              if (label.includes('*') || label.includes('✱')) {
+                isRequired = true;
+              }
+              // Also check previous sibling for asterisk (common pattern: <span>*</span><input>)
+              let prevSibling = labelElement.previousElementSibling;
+              if (prevSibling && (prevSibling.textContent === '*' || prevSibling.textContent === '✱')) {
+                isRequired = true;
+              }
+            }
+            
+            const simplified = {
+              tag: element.tagName,
+              text: text || '(no text)',
+              selector: selectorStr,
+              type: element.getAttribute('type') || undefined,
+              role: element.getAttribute('role') || undefined,
+              isInModal: inModal,
+              isRequired: isRequired
+            };
+            
+            elements.push(simplified);
+          });
         });
-      });
-
-      return elements;
-    });
+        
+        return elements;
+      })();
+    `;
+    
+    const simplifiedElements = await this.page.evaluate(evaluateCode) as SimplifiedElement[];
 
     // Convert to structured string format for LLM consumption
     const domState = this.formatDOMState(simplifiedElements);
@@ -178,16 +267,55 @@ export class BrowserTools {
       return 'No actionable elements found on this page.';
     }
 
-    const lines = elements.map((el, idx) => {
-      const parts = [`[${idx}] ${el.tag}`];
-      if (el.text) parts.push(`Text: "${el.text}"`);
-      if (el.type) parts.push(`Type: ${el.type}`);
-      if (el.role) parts.push(`Role: ${el.role}`);
-      parts.push(`Selector: ${el.selector}`);
-      return parts.join(' | ');
+    // Separate modal and non-modal elements
+    const modalElements: SimplifiedElement[] = [];
+    const regularElements: SimplifiedElement[] = [];
+    
+    elements.forEach(el => {
+      if (el.isInModal) {
+        modalElements.push(el);
+      } else {
+        regularElements.push(el);
+      }
     });
 
-    return `Actionable Elements (${elements.length}):\n${lines.join('\n')}`;
+    const lines: string[] = [];
+    
+    // Add modal section first if modals are present
+    if (modalElements.length > 0) {
+      lines.push(`=== MODAL SECTION (${modalElements.length} elements) - PRIORITIZE THESE ===`);
+      modalElements.forEach((el, idx) => {
+        const parts = [`[${idx}] ${el.tag} [MODAL]`];
+        if (el.text) parts.push(`Text: "${el.text}"`);
+        if (el.type) parts.push(`Type: ${el.type}`);
+        if (el.role) parts.push(`Role: ${el.role}`);
+        if (el.isRequired) parts.push(`⚠️ REQUIRED`);
+        // Highlight "Next" and "Done" buttons
+        const textLower = (el.text || '').toLowerCase();
+        if (textLower.includes('next') || textLower.includes('done') || textLower.includes('continue') || textLower.includes('submit')) {
+          parts.push(`🎯 PRIORITY BUTTON`);
+        }
+        parts.push(`Selector: ${el.selector}`);
+        lines.push(parts.join(' | '));
+      });
+      lines.push(''); // Empty line separator
+    }
+
+    // Add regular elements section
+    if (regularElements.length > 0) {
+      lines.push(`Actionable Elements (${regularElements.length}):`);
+      regularElements.forEach((el, idx) => {
+        const parts = [`[${idx}] ${el.tag}`];
+        if (el.text) parts.push(`Text: "${el.text}"`);
+        if (el.type) parts.push(`Type: ${el.type}`);
+        if (el.role) parts.push(`Role: ${el.role}`);
+        if (el.isRequired) parts.push(`⚠️ REQUIRED`);
+        parts.push(`Selector: ${el.selector}`);
+        lines.push(parts.join(' | '));
+      });
+    }
+
+    return lines.join('\n');
   }
 
   /**
@@ -278,6 +406,73 @@ export class BrowserTools {
       throw new Error('Browser not initialized.');
     }
     return this.page.url();
+  }
+
+  /**
+   * Wait for network to be idle by actively monitoring network requests
+   * Waits until there are no active network requests for at least 500ms
+   */
+  async waitForNetworkIdle(timeout: number = 30000): Promise<void> {
+    if (!this.page) {
+      throw new Error('Browser not initialized.');
+    }
+
+    const startTime = Date.now();
+    let lastRequestFinishTime = 0; // Track when the last request finished
+    let activeRequests = 0;
+    const idleDuration = 500; // Wait for 500ms of no requests
+
+    // Track request start
+    const requestHandler = () => {
+      activeRequests++;
+    };
+
+    // Track request finish
+    const responseHandler = () => {
+      activeRequests = Math.max(0, activeRequests - 1);
+      if (activeRequests === 0) {
+        // Update the time when all requests finished
+        lastRequestFinishTime = Date.now();
+      }
+    };
+
+    // Listen to network events
+    this.page.on('request', requestHandler);
+    this.page.on('response', responseHandler);
+    this.page.on('requestfailed', responseHandler);
+
+    try {
+      // Initial wait to see if there are any requests in flight
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      
+      // If no requests were detected, start the idle timer from now
+      if (activeRequests === 0 && lastRequestFinishTime === 0) {
+        lastRequestFinishTime = Date.now();
+      }
+
+      // Wait for network to be idle
+      while (Date.now() - startTime < timeout) {
+        const timeSinceLastRequest = lastRequestFinishTime > 0 
+          ? Date.now() - lastRequestFinishTime 
+          : 0;
+        const hasBeenIdle = activeRequests === 0 && timeSinceLastRequest >= idleDuration;
+
+        if (hasBeenIdle) {
+          return; // Successfully waited for network idle
+        }
+
+        // Check every 100ms
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+
+      // If we timed out, log a warning
+      console.warn(`Network idle timeout after ${timeout}ms (${activeRequests} active requests, ${Date.now() - lastRequestFinishTime}ms since last request finished)`);
+    } finally {
+      // Clean up listeners
+      this.page.off('request', requestHandler);
+      this.page.off('response', responseHandler);
+      this.page.off('requestfailed', responseHandler);
+    }
   }
 }
 

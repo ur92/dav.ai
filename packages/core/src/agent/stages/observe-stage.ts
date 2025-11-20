@@ -1,7 +1,8 @@
 import { DavAgentState } from '../../types/state.js';
 import { StageContext } from './stage-context.js';
 import { logger } from '../../utils/logger.js';
-import { detectLoginScreen } from './login-helpers.js';
+import { detectLoginScreen } from '../helpers/login-helpers.js';
+import { detectModal } from '../helpers/modal-helpers.js';
 
 /**
  * Creates the observe_state node handler
@@ -10,10 +11,18 @@ import { detectLoginScreen } from './login-helpers.js';
 export function createObserveStage(context: StageContext) {
   return async (state: DavAgentState): Promise<Partial<DavAgentState>> => {
     try {
-      const url = state.currentUrl;
-      logger.info('OBSERVE', `Navigating to: ${url}`, undefined, context.sessionId);
+      // Only navigate on the first observation (initial page load)
+      // After that, only observe the current page - navigation should happen through UI interactions
+      const isInitialObservation = !state.actionHistory || state.actionHistory.length === 0;
+      const url = isInitialObservation ? state.currentUrl : undefined;
+      
+      if (isInitialObservation) {
+        logger.info('OBSERVE', `Initial navigation to: ${state.currentUrl}`, undefined, context.sessionId);
+      } else {
+        logger.info('OBSERVE', `Observing current page (no navigation - agent must interact via UI)`, undefined, context.sessionId);
+      }
 
-      const observation = await context.browserTools.observe(url);
+      const observation = await context.browserTools.observe(url, context.sessionId, state.actionHistory?.length);
       logger.info('OBSERVE', `Page loaded successfully`, undefined, context.sessionId);
 
       // Count actionable elements (subtract 1 for the header line)
@@ -27,13 +36,13 @@ export function createObserveStage(context: StageContext) {
       if (isCycle) {
         logger.info('OBSERVE', `Cycle detected! Fingerprint ${observation.fingerprint} was visited before. Ending exploration gracefully.`, undefined, context.sessionId);
         historyEntry += ' [CYCLE DETECTED - Exploration complete]';
-        return {
-          currentUrl: observation.currentUrl,
-          domState: observation.domState,
-          actionHistory: [historyEntry],
-          visitedFingerprints: [...visitedFingerprints, observation.fingerprint],
-          explorationStatus: 'FLOW_END', // Gracefully end when cycle detected
-        };
+      return {
+        currentUrl: observation.currentUrl,
+        domState: observation.domState,
+        actionHistory: [historyEntry],
+        visitedFingerprints: [...visitedFingerprints, observation.fingerprint],
+        explorationStatus: 'FLOW_END', // Gracefully end when cycle detected
+      };
       }
       
       // Check if this is a login screen and we have credentials
@@ -50,6 +59,13 @@ export function createObserveStage(context: StageContext) {
       if (isLoginScreen && context.credentials.value?.username && context.credentials.value?.password && !context.loginAttempted.has(observation.currentUrl) && !context.loginSuccessful.value) {
         historyEntry += ' [LOGIN DETECTED - Will use credentials]';
         logger.info('OBSERVE', 'Login screen detected, credentials available', undefined, context.sessionId);
+      }
+      
+      // Check if modals/dialogs are present
+      const hasModal = detectModal(observation.domState);
+      if (hasModal) {
+        historyEntry += ' [MODAL DETECTED - Prioritizing modal interactions]';
+        logger.info('OBSERVE', 'Modal/dialog detected on page - will prioritize modal elements', undefined, context.sessionId);
       }
       
       // Extract and log key page information

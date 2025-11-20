@@ -3,7 +3,8 @@ import { DavAgentState, PendingAction } from '../../types/state.js';
 import { StageContext } from './stage-context.js';
 import { logger } from '../../utils/logger.js';
 import { extractTokenUsage } from '../../utils/token-usage.js';
-import { detectLoginScreen, findLoginField, findSubmitButton } from './login-helpers.js';
+import { detectLoginScreen, findLoginField, findSubmitButton } from '../helpers/login-helpers.js';
+import { extractModalElements, findModalCloseButtons } from '../helpers/modal-helpers.js';
 import { buildDecideStagePrompt, buildCredentialsHint } from './decide-stage.prompts.js';
 
 /**
@@ -75,10 +76,34 @@ export function createDecideStage(context: StageContext) {
         ? buildCredentialsHint(context.credentials.value.username, context.credentials.value.password)
         : '';
 
+      // Track modal interactions and provide context
+      const modalElements = extractModalElements(state.domState);
+      const closeButtons = findModalCloseButtons(state.domState);
+      const previouslyInteractedModals = Array.from(context.interactedModalSelectors);
+      
+      // Build modal interaction hint
+      let modalHint = '';
+      if (modalElements.length > 0) {
+        modalHint = '\n\n🎯 MODAL INTERACTION STRATEGY:\n';
+        if (previouslyInteractedModals.length > 0) {
+          modalHint += `- You have previously interacted with these modal elements: ${previouslyInteractedModals.join(', ')}\n`;
+          modalHint += '- CONTINUE interacting with modal elements you\'ve started working with (deep flow)\n';
+          modalHint += '- Explore all interactive elements within the modal before closing it\n';
+        } else {
+          modalHint += '- Start interacting with modal elements (forms, buttons, inputs, etc.)\n';
+        }
+        if (closeButtons.length > 0) {
+          modalHint += `- When you finish interacting with the modal, close it using: ${closeButtons.join(' or ')}\n`;
+        } else {
+          modalHint += '- When you finish interacting with the modal, look for close buttons (X, Close, Cancel, etc.)\n';
+        }
+      }
+
       const systemPrompt = buildDecideStagePrompt(
         state.domState,
         state.actionHistory,
-        credentialsHint
+        credentialsHint,
+        modalHint
       );
 
       const messages = [
@@ -131,6 +156,16 @@ export function createDecideStage(context: StageContext) {
                 url: action.url,
               }));
 
+              // Track modal interactions
+              batchActions.forEach(action => {
+                if (action.selector) {
+                  const selector = action.selector;
+                  if (modalElements.some(el => el.includes(selector))) {
+                    context.interactedModalSelectors.add(selector);
+                  }
+                }
+              });
+
               logger.info('DECIDE', `Selected ${batchActions.length} batch actions: ${batchActions.map(a => a.tool).join(', ')}`, undefined, context.sessionId);
 
               decision = {
@@ -147,6 +182,11 @@ export function createDecideStage(context: StageContext) {
                 value: parsed.value,
                 url: parsed.url,
               };
+
+              // Track modal interactions
+              if (pendingAction.selector && modalElements.some(el => el.includes(pendingAction.selector!))) {
+                context.interactedModalSelectors.add(pendingAction.selector);
+              }
 
               // Don't emit decisions for single actions - they're too verbose
               // Only batch actions and special events (login, cycle, flow end) are emitted

@@ -15,4 +15,5 @@ yarn.lock
 .pnp.*
 # Docker volumes (optional - uncomment if you want to ignore volume data)
 # neo4j_data/
+screenshots/
 

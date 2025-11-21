@@ -34,5 +34,6 @@ export interface SimplifiedElement {
   role?: string;
   isInModal?: boolean;
   isRequired?: boolean;
+  isDisabled?: boolean;
 }
 

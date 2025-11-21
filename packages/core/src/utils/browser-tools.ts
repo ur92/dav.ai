@@ -105,6 +105,70 @@ export class BrowserTools {
           return false;
         }
         
+        function isElementVisible(element) {
+          // Check aria-hidden attribute on the element itself
+          if (element.getAttribute('aria-hidden') === 'true') {
+            return false;
+          }
+          
+          // Check element and all parent elements for visibility
+          let current = element;
+          while (current && current !== document.body) {
+            const style = window.getComputedStyle(current);
+            
+            // Check display: none
+            if (style.display === 'none') {
+              return false;
+            }
+            
+            // Check visibility: hidden
+            if (style.visibility === 'hidden') {
+              return false;
+            }
+            
+            // Check opacity: 0 or very low (less than 0.01)
+            const opacity = parseFloat(style.opacity || '1');
+            if (opacity < 0.01) {
+              return false;
+            }
+            
+            // Check if parent has aria-hidden
+            if (current.getAttribute('aria-hidden') === 'true') {
+              return false;
+            }
+            
+            current = current.parentElement;
+          }
+          
+          // Check if element has zero dimensions (effectively invisible)
+          const rect = element.getBoundingClientRect();
+          if (rect.width === 0 && rect.height === 0) {
+            return false;
+          }
+          
+          // Check if element is completely outside viewport
+          const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+          const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+          
+          // Element is outside viewport if all edges are outside
+          if (rect.right < 0 || rect.left > viewportWidth || 
+              rect.bottom < 0 || rect.top > viewportHeight) {
+            return false;
+          }
+          
+          // Check offsetParent (handles elements with display: none, position: fixed with no positioning,
+          // or elements that are not in the document flow)
+          if (element.offsetParent === null) {
+            // Exception: position: fixed elements can have offsetParent === null but still be visible
+            const elementStyle = window.getComputedStyle(element);
+            if (elementStyle.position !== 'fixed') {
+              return false;
+            }
+          }
+          
+          return true;
+        }
+        
         function isInModal(element) {
           let current = element;
           while (current && current !== document.body) {
@@ -153,7 +217,8 @@ export class BrowserTools {
               return;
             }
             
-            if (element.offsetParent === null && !element.hasAttribute('aria-hidden')) {
+            // Skip hidden elements (display: none, visibility: hidden, opacity: 0, outside viewport, etc.)
+            if (!isElementVisible(element)) {
               return;
             }
             
@@ -170,11 +235,19 @@ export class BrowserTools {
               text = element.getAttribute('title').substring(0, 30);
             }
             
+            // Prioritize most specific selectors to avoid matching multiple elements
             if (element.id) {
               selectorStr = '#' + element.id;
+            } else if (element.getAttribute('data-cy')) {
+              // data-cy attributes are typically unique and specific for testing
+              selectorStr = '[data-cy="' + element.getAttribute('data-cy') + '"]';
+            } else if (element.getAttribute('data-testid')) {
+              // data-testid is another common unique testing attribute
+              selectorStr = '[data-testid="' + element.getAttribute('data-testid') + '"]';
             } else if (element.getAttribute('name')) {
               selectorStr = '[name="' + element.getAttribute('name') + '"]';
             } else {
+              // Fall back to tag + classes (less specific, may match multiple elements)
               const tag = element.tagName.toLowerCase();
               const classes = element.className
                 ? '.' + String(element.className)
@@ -226,6 +299,23 @@ export class BrowserTools {
               }
             }
             
+            // Check if element is disabled
+            let isDisabled = false;
+            // Check disabled property (for form elements like button, input, etc.)
+            if (element.disabled === true) {
+              isDisabled = true;
+            }
+            // Check aria-disabled attribute
+            if (element.getAttribute('aria-disabled') === 'true') {
+              isDisabled = true;
+            }
+            // Check if element has class containing "disabled"
+            const className = element.className || '';
+            const classStr = String(className).toLowerCase();
+            if (classStr.includes('disabled')) {
+              isDisabled = true;
+            }
+            
             const simplified = {
               tag: element.tagName,
               text: text || '(no text)',
@@ -233,7 +323,8 @@ export class BrowserTools {
               type: element.getAttribute('type') || undefined,
               role: element.getAttribute('role') || undefined,
               isInModal: inModal,
-              isRequired: isRequired
+              isRequired: isRequired,
+              isDisabled: isDisabled
             };
             
             elements.push(simplified);
@@ -290,6 +381,7 @@ export class BrowserTools {
         if (el.type) parts.push(`Type: ${el.type}`);
         if (el.role) parts.push(`Role: ${el.role}`);
         if (el.isRequired) parts.push(`⚠️ REQUIRED`);
+        if (el.isDisabled) parts.push(`⚠️ DISABLED`);
         // Highlight "Next" and "Done" buttons
         const textLower = (el.text || '').toLowerCase();
         if (textLower.includes('next') || textLower.includes('done') || textLower.includes('continue') || textLower.includes('submit')) {
@@ -310,6 +402,7 @@ export class BrowserTools {
         if (el.type) parts.push(`Type: ${el.type}`);
         if (el.role) parts.push(`Role: ${el.role}`);
         if (el.isRequired) parts.push(`⚠️ REQUIRED`);
+        if (el.isDisabled) parts.push(`⚠️ DISABLED`);
         parts.push(`Selector: ${el.selector}`);
         lines.push(parts.join(' | '));
       });

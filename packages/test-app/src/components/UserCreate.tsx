@@ -30,11 +30,6 @@ export function UserCreate() {
     setSuccess(true);
     setUsername('');
     setPassword('');
-    
-    // Redirect to users list after a short delay
-    setTimeout(() => {
-      navigate('/users/list');
-    }, 1500);
   };
 
   return (
@@ -70,7 +65,7 @@ export function UserCreate() {
             />
           </div>
           {error && <p className="error-message">{error}</p>}
-          {success && <p className="success-message">User created successfully! Redirecting...</p>}
+          {success && <p className="success-message">User created successfully!</p>}
           <button type="submit" className="create-button">
             Create User
           </button>

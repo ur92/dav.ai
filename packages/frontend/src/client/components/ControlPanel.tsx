@@ -3,8 +3,6 @@ import { Session } from '../types';
 interface ControlPanelProps {
   url: string;
   setUrl: (url: string) => void;
-  maxIterations: number | undefined;
-  setMaxIterations: (iterations: number | undefined) => void;
   appUsername: string;
   setAppUsername: (username: string) => void;
   appPassword: string;
@@ -18,8 +16,6 @@ interface ControlPanelProps {
 export default function ControlPanel({
   url,
   setUrl,
-  maxIterations,
-  setMaxIterations,
   appUsername,
   setAppUsername,
   appPassword,
@@ -45,27 +41,6 @@ export default function ControlPanel({
           placeholder="http://localhost:5173/"
           disabled={loading}
         />
-      </div>
-      <div className="form-group">
-        <label htmlFor="iterations">Max Iterations:</label>
-        <input
-          id="iterations"
-          type="number"
-          value={maxIterations ?? ''}
-          onChange={(e) => {
-            const val = e.target.value;
-            setMaxIterations(val ? parseInt(val, 10) : undefined);
-          }}
-          placeholder="Uses .env MAX_ITERATIONS if empty"
-          min="1"
-          max="100"
-          disabled={loading}
-        />
-        {maxIterations === undefined && (
-          <small style={{ display: 'block', marginTop: '0.25rem', color: '#666', fontSize: '0.85rem' }}>
-            Will use value from .env (currently: loading...)
-          </small>
-        )}
       </div>
       <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '2px solid #e0e0e0' }}>
         <h3 style={{ fontSize: '1rem', marginBottom: '1rem', color: '#555' }}>🔐 App Credentials (Optional)</h3>

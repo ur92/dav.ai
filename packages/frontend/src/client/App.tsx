@@ -14,7 +14,6 @@ import UserStoriesPanel from './components/UserStoriesPanel';
 
 function App() {
   const [url, setUrl] = useState('http://localhost:5173/');
-  const [maxIterations, setMaxIterations] = useState<number | undefined>(undefined);
   const [appUsername, setAppUsername] = useState('');
   const [appPassword, setAppPassword] = useState('');
   const [currentSession, setCurrentSession] = useState<string | null>(null);
@@ -106,10 +105,6 @@ function App() {
         if (config.startingUrl) {
           setUrl(config.startingUrl);
         }
-        // Only set maxIterations from config if user hasn't explicitly set it
-        if (config.maxIterations && maxIterations === undefined) {
-          setMaxIterations(config.maxIterations);
-        }
       }
     };
 
@@ -153,7 +148,6 @@ function App() {
     try {
       const data = await startExploration(
         url,
-        maxIterations || undefined,
         appUsername || appPassword ? {
           username: appUsername,
           password: appPassword,
@@ -253,8 +247,6 @@ function App() {
         <ControlPanel
           url={url}
           setUrl={setUrl}
-          maxIterations={maxIterations}
-          setMaxIterations={setMaxIterations}
           appUsername={appUsername}
           setAppUsername={setAppUsername}
           appPassword={appPassword}

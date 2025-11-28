@@ -60,7 +60,7 @@ router.get('/credentials', async (req, res) => {
 
 // Start exploration
 router.post('/explore', async (req, res) => {
-  const { url, maxIterations, credentials } = req.body;
+  const { url, credentials } = req.body;
 
   if (!url) {
     logger.error('API', 'Exploration failed: URL is required');
@@ -71,7 +71,7 @@ router.post('/explore', async (req, res) => {
     const response = await fetch(`${CORE_SERVICE_URL}/explore`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, maxIterations, credentials }),
+      body: JSON.stringify({ url, credentials }),
     });
 
     if (!response.ok) {

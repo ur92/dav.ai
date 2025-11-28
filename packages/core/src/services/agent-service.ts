@@ -15,7 +15,6 @@ export class AgentService {
    */
   static async runExploration(
     url: string,
-    maxIterations?: number,
     sessionId?: string,
     credentials?: { username?: string; password?: string }
   ): Promise<{ browserTools: BrowserTools; neo4jTools: Neo4jTools; agent: DavAgent; runPromise: Promise<DavAgentState> }> {
@@ -23,17 +22,9 @@ export class AgentService {
     const config = ConfigService.getConfig();
     const apiKey = ConfigService.getLLMApiKey();
     
-    // Use provided maxIterations or fall back to config
-    const iterations = maxIterations ?? config.maxIterations;
-    
     // Use provided credentials or fall back to config credentials
     const finalCredentials = credentials ?? ConfigService.getCredentials();
     
-    logger.info('AgentService', 'Iterations configuration', {
-      provided: maxIterations,
-      fromConfig: config.maxIterations,
-      final: iterations,
-    });
     logger.info('AgentService', 'Credentials configuration', {
       provided: !!credentials,
       fromConfig: !!ConfigService.getCredentials(),
@@ -87,8 +78,8 @@ export class AgentService {
     // Start exploration - wrap in a promise that handles errors and logs
     const runPromise = (async () => {
       try {
-        logger.info('AgentService', `Starting agent.run() for URL: ${url} with maxIterations: ${iterations}`);
-        const result = await agent.run(url, iterations);
+        logger.info('AgentService', `Starting agent.run() for URL: ${url}`);
+        const result = await agent.run(url);
         logger.info('AgentService', `Agent run completed with status: ${result.explorationStatus}`);
         return result;
       } catch (error) {

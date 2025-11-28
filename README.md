@@ -127,7 +127,6 @@ dav-ai/
    
    # Agent Configuration (optional, has defaults)
    STARTING_URL=https://example.com
-   MAX_ITERATIONS=20
    HEADLESS=true  # Run browser in headless mode
    LOG_LEVEL=info  # debug, info, warn, error
    
@@ -302,7 +301,6 @@ Each element includes:
   ```json
   {
     "url": "https://example.com",
-    "maxIterations": 20,
     "credentials": {
       "username": "optional",
       "password": "optional"

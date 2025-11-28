@@ -8,6 +8,12 @@ import { logger } from '../../utils/logger.js';
  */
 export function createPersistStage(context: StageContext) {
   return async (state: DavAgentState): Promise<Partial<DavAgentState>> => {
+    // Early exit if exploration has already ended (but still persist any pending queries)
+    if ((state.explorationStatus === 'FLOW_END' || state.explorationStatus === 'FAILURE') && state.neo4jQueries.length === 0) {
+      logger.info('PERSIST', `Exploration already ended with status: ${state.explorationStatus}, no queries to persist`, undefined, context.sessionId);
+      return {}; // Return empty update to preserve state
+    }
+
     if (state.neo4jQueries.length === 0) {
       return {};
     }

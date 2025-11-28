@@ -198,11 +198,9 @@ export class DavAgent {
   /**
    * Run the agent starting from a given URL
    */
-  async run(startingUrl: string, maxIterations: number = 20): Promise<DavAgentState> {
+  async run(startingUrl: string): Promise<DavAgentState> {
       logger.info('AGENT', `[run] Starting run method`, {
       startingUrl,
-      maxIterations,
-      note: maxIterations === 20 ? 'Using default value (20) - check if value was passed correctly' : 'Using provided value',
     }, this.sessionId);
     
     try {
@@ -210,70 +208,61 @@ export class DavAgent {
       const compiledGraph = this.compile();
       logger.info('AGENT', '[run] Graph compiled successfully', undefined, this.sessionId);
 
-              const initialState: DavAgentState = {
-                currentUrl: startingUrl,
-                domState: '',
-                actionHistory: [],
-                neo4jQueries: [],
-                explorationStatus: 'CONTINUE',
-                pendingAction: null,
-                pendingActions: [],
-                visitedFingerprints: [],
-              };
+      const initialState: DavAgentState = {
+        currentUrl: startingUrl,
+        domState: '',
+        actionHistory: [],
+        neo4jQueries: [],
+        explorationStatus: 'CONTINUE',
+        pendingAction: null,
+        pendingActions: [],
+        visitedFingerprints: [],
+      };
 
       let currentState = initialState;
-      let iterations = 0;
 
       logger.info('AGENT', `[run] Starting exploration from: ${startingUrl}`, undefined, this.sessionId);
-      logger.info('AGENT', `[run] Maximum iterations: ${maxIterations}`, undefined, this.sessionId);
 
-      while (currentState.explorationStatus === 'CONTINUE' && iterations < maxIterations) {
+      while (currentState.explorationStatus === 'CONTINUE') {
         try {
-          logger.info('AGENT', `[run] Invoking graph for iteration ${iterations + 1}...`, undefined, this.sessionId);
-          logger.info('AGENT', `━━━ Iteration ${iterations + 1}/${maxIterations} ━━━`, undefined, this.sessionId);
-          // Set recursion limit to allow for multiple graph steps per iteration
-          // Each iteration can involve: observe -> decide -> execute -> persist (4 steps)
-          // Use a high recursion limit to prevent premature termination
+          // Set recursion limit - each cycle through the graph (observe -> decide -> execute -> persist) is multiple steps
           const result = await compiledGraph.invoke(currentState, {
-            recursionLimit: maxIterations * 10,
-          } as any); // Type assertion needed due to LangGraph type definitions
+            recursionLimit: 100,
+          } as any);
           currentState = result as DavAgentState;
-          iterations++;
 
-          logger.info('AGENT', `[run] Iteration ${iterations}/${maxIterations} - Status: ${currentState.explorationStatus}`, undefined, this.sessionId);
+          logger.info('AGENT', `[run] Status: ${currentState.explorationStatus}`, undefined, this.sessionId);
         } catch (error) {
-          // Check if it's a recursion limit error - if so, treat as graceful completion
+          // Check if it's a recursion limit error - if FLOW_END was already set, treat as success
           if (error instanceof Error && error.message.includes('Recursion limit')) {
-            logger.info('AGENT', `[run] Recursion limit reached, treating as graceful completion`, {
-              iterations,
-              status: currentState.explorationStatus,
-            });
-            currentState.explorationStatus = 'FLOW_END';
+            // If we already have FLOW_END status, the exploration completed successfully
+            // The recursion limit was hit but the graph had already decided to end
+            if (currentState.explorationStatus === 'FLOW_END') {
+              logger.info('AGENT', `[run] Recursion limit reached but exploration completed successfully`, {
+                status: currentState.explorationStatus,
+              }, this.sessionId);
+              break;
+            }
+            // Otherwise, it's a failure
+            logger.error('AGENT', `[run] Recursion limit reached before completion`, { 
+              error: error instanceof Error ? error.message : String(error),
+            }, this.sessionId);
+            currentState.explorationStatus = 'FAILURE';
             break;
           }
           
-          logger.error('AGENT', `[run] Error in iteration ${iterations}`, { 
+          logger.error('AGENT', `[run] Error in exploration`, { 
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined,
-          });
+          }, this.sessionId);
           currentState.explorationStatus = 'FAILURE';
           break;
         }
       }
 
-      if (iterations >= maxIterations) {
-        logger.info('AGENT', '[run] Reached maximum iterations limit', {
-          iterations,
-          maxIterations,
-          limitReached: true,
-        }, this.sessionId);
-        currentState.explorationStatus = 'FLOW_END';
-      }
-
-      logger.info('AGENT', `[run] Exploration finished. Final status: ${currentState.explorationStatus}, Iterations: ${iterations}`, undefined, this.sessionId);
+      logger.info('AGENT', `[run] Exploration finished. Final status: ${currentState.explorationStatus}`, undefined, this.sessionId);
       logger.info('AGENT', `━━━ Exploration Complete ━━━`, undefined, this.sessionId);
       logger.info('AGENT', `Final status: ${currentState.explorationStatus}`, undefined, this.sessionId);
-      logger.info('AGENT', `Total iterations: ${iterations}`, undefined, this.sessionId);
       logger.info('AGENT', `Final URL: ${currentState.currentUrl}`, undefined, this.sessionId);
       logger.info('AGENT', `Total actions: ${currentState.actionHistory.length}`, undefined, this.sessionId);
       return currentState;

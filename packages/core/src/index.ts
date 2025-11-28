@@ -36,7 +36,6 @@ if (!envLoaded) {
  * Can be used as a function (returns exploration result) or as CLI entry point
  * 
  * @param url - Optional URL to explore. If not provided, uses config.startingUrl
- * @param maxIterations - Optional max iterations. If not provided, uses config.maxIterations
  * @param autoCleanup - Whether to automatically cleanup resources after completion (default: true for CLI, false for API)
  * @param sessionId - Optional sessionId for graph isolation. If not provided, generates one.
  * @param credentials - Optional app credentials {username, password} for automatic login
@@ -44,7 +43,6 @@ if (!envLoaded) {
  */
 async function main(
   url?: string,
-  maxIterations?: number,
   autoCleanup: boolean = true,
   sessionId?: string,
   credentials?: { username?: string; password?: string }
@@ -88,7 +86,6 @@ async function main(
 
   // Get configuration from ConfigService (single source of truth)
   const explorationUrl = url ?? config.startingUrl;
-  const iterations = maxIterations ?? config.maxIterations;
   // Use provided credentials or fall back to config credentials
   const finalCredentials = credentials ?? ConfigService.getCredentials();
 
@@ -97,11 +94,6 @@ async function main(
   logger.info('Agent', `Neo4j URI: ${config.neo4jUri}`);
   logger.info('Agent', `LLM Provider: ${config.llmProvider}`);
   logger.info('Agent', `LLM Model: ${config.llmModel}`);
-  logger.info('Agent', `Max Iterations Configuration:`, {
-    provided: maxIterations,
-    fromConfig: config.maxIterations,
-    final: iterations,
-  });
 
   let browserTools: BrowserTools | null = null;
   let neo4jTools: Neo4jTools | null = null;
@@ -114,7 +106,7 @@ async function main(
       hasCredentials: !!(finalCredentials?.username || finalCredentials?.password),
       credentialsSource: credentials ? 'provided' : (ConfigService.getCredentials() ? 'config' : 'none')
     });
-    const serviceResult = await AgentService.runExploration(explorationUrl, iterations, finalSessionId, finalCredentials);
+    const serviceResult = await AgentService.runExploration(explorationUrl, finalSessionId, finalCredentials);
     browserTools = serviceResult.browserTools;
     neo4jTools = serviceResult.neo4jTools;
     logger.info('Agent', '✓ Agent service initialized');

@@ -56,7 +56,6 @@ describe('Agent Exploration E2E Test', () => {
       console.log('Starting agent exploration...');
       const explorationResponse = await startExploration({
         url: TEST_APP_URL,
-        maxIterations: 20,
         credentials: TEST_CREDENTIALS,
       });
 

@@ -9,6 +9,12 @@ import { Neo4jTools } from '../../utils/neo4j-tools.js';
  */
 export function createExecuteStage(context: StageContext) {
   return async (state: DavAgentState): Promise<Partial<DavAgentState>> => {
+    // Early exit if exploration has already ended
+    if (state.explorationStatus === 'FLOW_END' || state.explorationStatus === 'FAILURE') {
+      logger.info('EXECUTE', `Exploration already ended with status: ${state.explorationStatus}, skipping execution`, undefined, context.sessionId);
+      return {}; // Return empty update to preserve state
+    }
+
     // Support both old single action and new batch actions
     const actionsToExecute: PendingAction[] = state.pendingActions.length > 0 
       ? state.pendingActions 

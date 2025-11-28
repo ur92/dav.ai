@@ -233,7 +233,6 @@ export class Neo4jTools {
     sessionId: string;
     status: 'idle' | 'running' | 'completed' | 'error';
     url: string;
-    maxIterations: number;
     createdAt: Date;
     updatedAt?: Date;
     error?: string;
@@ -255,13 +254,11 @@ export class Neo4jTools {
         ON CREATE SET s.createdAt = $createdAt,
                       s.status = $status,
                       s.url = $url,
-                      s.maxIterations = $maxIterations,
                       s.updatedAt = $updatedAt,
                       s.error = $error,
                       s.tokenUsage = $tokenUsage
         ON MATCH SET s.status = $status,
                      s.url = $url,
-                     s.maxIterations = $maxIterations,
                      s.updatedAt = $updatedAt,
                      s.error = $error,
                      s.tokenUsage = $tokenUsage
@@ -272,7 +269,6 @@ export class Neo4jTools {
         sessionId: metadata.sessionId,
         status: metadata.status,
         url: metadata.url,
-        maxIterations: neo4j.int(metadata.maxIterations),
         createdAt: createdAt,
         updatedAt: updatedAt,
         error: metadata.error || null,
@@ -299,7 +295,6 @@ export class Neo4jTools {
     sessionId: string;
     status: 'idle' | 'running' | 'completed' | 'error';
     url: string;
-    maxIterations: number;
     createdAt: Date;
     updatedAt: Date;
     error?: string;
@@ -347,9 +342,6 @@ export class Neo4jTools {
           sessionId: properties.sessionId,
           status: properties.status as 'idle' | 'running' | 'completed' | 'error',
           url: properties.url,
-          maxIterations: typeof properties.maxIterations === 'number' 
-            ? properties.maxIterations 
-            : properties.maxIterations.toNumber(),
           createdAt,
           updatedAt,
           error: properties.error || undefined,
@@ -373,7 +365,6 @@ export class Neo4jTools {
     sessionId: string;
     status: 'idle' | 'running' | 'completed' | 'error';
     url: string;
-    maxIterations: number;
     createdAt: Date;
     updatedAt: Date;
     error?: string;
@@ -424,9 +415,6 @@ export class Neo4jTools {
         sessionId: properties.sessionId,
         status: properties.status as 'idle' | 'running' | 'completed' | 'error',
         url: properties.url,
-        maxIterations: typeof properties.maxIterations === 'number' 
-          ? properties.maxIterations 
-          : properties.maxIterations.toNumber(),
         createdAt,
         updatedAt,
         error: properties.error || undefined,

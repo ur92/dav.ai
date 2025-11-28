@@ -96,7 +96,6 @@ export function useApi() {
 
   const startExploration = useCallback(async (
     url: string,
-    maxIterations?: number,
     credentials?: { username: string; password: string }
   ) => {
     try {
@@ -107,7 +106,6 @@ export function useApi() {
         },
         body: JSON.stringify({
           url,
-          maxIterations: maxIterations || undefined,
           credentials: credentials || undefined,
         }),
       });

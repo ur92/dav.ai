@@ -2,7 +2,6 @@ const CORE_API_URL = 'http://localhost:3002';
 
 export interface ExplorationRequest {
   url: string;
-  maxIterations?: number;
   credentials?: {
     username?: string;
     password?: string;

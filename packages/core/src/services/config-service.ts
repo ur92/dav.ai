@@ -14,7 +14,6 @@ export interface AppConfig {
   neo4jPassword: string;
   
   // Agent Configuration
-  maxIterations: number;
   startingUrl: string;
   
   // Browser Configuration
@@ -60,7 +59,6 @@ export class ConfigService {
       neo4jPassword: process.env.NEO4J_PASSWORD || 'password',
       
       // Agent Configuration
-      maxIterations: parseInt(process.env.MAX_ITERATIONS || '20', 10),
       startingUrl: process.env.STARTING_URL || 'https://example.com',
       
       // Browser Configuration

@@ -22,7 +22,7 @@ const neo4jTools = new Neo4jTools(uri, user, password);
 
 await browserTools.initialize();
 const agent = new DavAgent(browserTools, neo4jTools, apiKey, model);
-const result = await agent.run(startingUrl, maxIterations);
+const result = await agent.run(startingUrl);
 ```
 
 ## Development

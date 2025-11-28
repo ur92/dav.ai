@@ -90,15 +90,21 @@ export async function waitForService(
  */
 export async function startCoreService(): Promise<ServiceProcess> {
   console.log('Starting core service...');
-  const process = spawn('yarn', ['workspace', '@dav-ai/core', 'dev:server'], {
+  // Always run in headless mode for e2e tests
+  const env = {
+    ...process.env,
+    HEADLESS: 'true',
+  };
+  const childProcess = spawn('yarn', ['workspace', '@dav-ai/core', 'dev:server'], {
     cwd: ROOT_DIR,
     stdio: 'pipe',
     shell: true,
+    env,
   });
 
   const service: ServiceProcess = {
     name: 'core',
-    process,
+    process: childProcess,
     port: 3002,
   };
 

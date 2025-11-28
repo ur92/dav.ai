@@ -15,7 +15,6 @@ export interface Session {
   status: 'idle' | 'running' | 'completed' | 'error';
   currentState?: DavAgentState;
   url: string;
-  maxIterations: number;
   createdAt: Date;
   logs?: Array<{
     timestamp: string;
@@ -119,7 +118,6 @@ export class SessionService {
         sessionId: session.sessionId,
         status: session.status,
         url: session.url,
-        maxIterations: session.maxIterations,
         createdAt: session.createdAt,
         updatedAt: new Date(),
         error: (session as any).error,
@@ -157,7 +155,6 @@ export class SessionService {
             sessionId: metadata.sessionId,
             status: updates.status || metadata.status,
             url: metadata.url,
-            maxIterations: metadata.maxIterations,
             createdAt: metadata.createdAt,
             updatedAt: new Date(),
             error: updates.error || metadata.error,
@@ -180,13 +177,12 @@ export class SessionService {
    * Create a new exploration session
    */
   static async createSession(
-    url: string,
-    maxIterations: number = 20
+    url: string
   ): Promise<Session> {
     const sessionId = `session-${Date.now()}`;
 
     // Use AgentService to initialize and run exploration with sessionId
-    const { browserTools, neo4jTools, agent, runPromise } = await AgentService.runExploration(url, maxIterations, sessionId);
+    const { browserTools, neo4jTools, agent, runPromise } = await AgentService.runExploration(url, sessionId);
 
     return this.registerSession({
       sessionId,
@@ -195,7 +191,6 @@ export class SessionService {
       agent,
       runPromise,
       url,
-      maxIterations,
     });
   }
 
@@ -209,7 +204,6 @@ export class SessionService {
     agent: DavAgent;
     runPromise: Promise<DavAgentState>;
     url: string;
-    maxIterations: number;
   }): Session {
     const sessionId = result.sessionId || `session-${Date.now()}`;
 
@@ -221,7 +215,6 @@ export class SessionService {
       runPromise: result.runPromise,
       status: 'running',
       url: result.url,
-      maxIterations: result.maxIterations,
       createdAt: new Date(),
       logs: [],
       tokenUsage: {

@@ -82,7 +82,6 @@ app.get('/config', (req, res) => {
       llmProvider: config.llmProvider,
       llmModel: config.llmModel,
       neo4jUri: config.neo4jUri,
-      maxIterations: config.maxIterations,
       startingUrl: config.startingUrl,
       headless: config.headless,
       logLevel: config.logLevel,
@@ -112,26 +111,16 @@ app.get('/credentials', (req, res) => {
 
 // Start exploration
 app.post('/explore', async (req, res) => {
-  const { url, maxIterations, credentials } = req.body;
+  const { url, credentials } = req.body;
 
   if (!url) {
     return res.status(400).json({ error: 'URL is required' });
   }
 
   try {
-    // Use provided maxIterations if it's a valid number, otherwise use config
-    const iterations = (maxIterations && typeof maxIterations === 'number' && maxIterations > 0) 
-      ? maxIterations 
-      : ConfigService.getConfig().maxIterations;
-    
     // Use provided credentials or fall back to config credentials
     const finalCredentials = credentials ?? ConfigService.getCredentials();
     
-    logger.info('Server', 'Using iterations', { 
-      provided: maxIterations, 
-      final: iterations,
-      fromConfig: ConfigService.getConfig().maxIterations 
-    });
     logger.info('Server', 'Using credentials', {
       provided: !!credentials,
       fromConfig: !!ConfigService.getCredentials(),
@@ -142,7 +131,7 @@ app.post('/explore', async (req, res) => {
     const sessionId = `session-${Date.now()}`;
     
     // Call main() with autoCleanup=false so we can manage the session
-    const explorationResult = await main(url, iterations, false, sessionId, finalCredentials);
+    const explorationResult = await main(url, false, sessionId, finalCredentials);
     
     // Register session from the exploration result
     const session = SessionService.registerSession({
@@ -152,7 +141,6 @@ app.post('/explore', async (req, res) => {
       agent: explorationResult.agent,
       runPromise: explorationResult.runPromise,
       url,
-      maxIterations: iterations,
     });
 
     // Set up completion/error handlers
@@ -533,7 +521,6 @@ export function startServer(port: number = 3000) {
       llmApiKey: maskedApiKey,
       neo4jUri: config.neo4jUri,
       neo4jUser: config.neo4jUser,
-      maxIterations: config.maxIterations,
       startingUrl: config.startingUrl,
     });
   });

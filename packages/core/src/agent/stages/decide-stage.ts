@@ -13,6 +13,12 @@ import { buildDecideStagePrompt, buildCredentialsHint } from './decide-stage.pro
  */
 export function createDecideStage(context: StageContext) {
   return async (state: DavAgentState): Promise<Partial<DavAgentState>> => {
+    // Early exit if exploration has already ended
+    if (state.explorationStatus === 'FLOW_END' || state.explorationStatus === 'FAILURE') {
+      logger.info('DECIDE', `Exploration already ended with status: ${state.explorationStatus}, skipping decision`, undefined, context.sessionId);
+      return {}; // Return empty update to preserve state
+    }
+
     try {
       // Check if this is a login screen and we haven't attempted login yet
       const isLoginScreen = detectLoginScreen(state.domState);

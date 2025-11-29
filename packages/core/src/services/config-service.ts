@@ -21,6 +21,7 @@ export interface AppConfig {
   
   // Logging Configuration
   logLevel: 'info' | 'warn' | 'error';
+  logFile?: string; // Optional path to log file
   
   // Credentials Configuration (optional, for automatic login)
   credentials?: { username?: string; password?: string };
@@ -66,6 +67,7 @@ export class ConfigService {
       
       // Logging Configuration
       logLevel: (process.env.LOG_LEVEL?.toLowerCase() || 'error') as 'info' | 'warn' | 'error',
+      logFile: process.env.LOG_FILE, // Optional log file path
       
       // Credentials Configuration (optional)
       credentials: (process.env.CRED_USERNAME || process.env.CRED_PASSWORD) ? {

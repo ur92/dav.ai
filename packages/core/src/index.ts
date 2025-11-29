@@ -55,9 +55,9 @@ async function main(
   // Initialize configuration service (loads all env vars)
   ConfigService.initialize();
   
-  // Initialize logger with configured log level
+  // Initialize logger with configured log level and log file
   const config = ConfigService.getConfig();
-  logger.initialize(config.logLevel);
+  await logger.initialize(config.logLevel, config.logFile);
   
   // Validate required configuration
   try {

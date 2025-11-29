@@ -39,9 +39,11 @@ if (!envLoaded) {
 // Initialize ConfigService
 ConfigService.initialize();
 
-// Initialize logger with configured log level
+// Initialize logger with configured log level and log file
 const config = ConfigService.getConfig();
-logger.initialize(config.logLevel);
+(async () => {
+  await logger.initialize(config.logLevel, config.logFile);
+})();
 
 // Initialize session persistence and load sessions from Neo4j
 SessionService.initializePersistence();

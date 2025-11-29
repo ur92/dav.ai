@@ -35,14 +35,14 @@ if (!envLoaded) {
   console.warn('Warning: Could not load .env file from any of the expected locations:', possiblePaths);
 }
 
-// Initialize logger with info level to see all messages
-logger.initialize('info');
-
 async function main() {
   try {
     // Initialize configuration
     ConfigService.initialize();
     const config = ConfigService.getConfig();
+    
+    // Initialize logger with info level to see all messages and optional log file
+    await logger.initialize('info', config.logFile);
 
     logger.info('Script', 'Connecting to Neo4j...', {
       uri: config.neo4jUri,

@@ -33,6 +33,11 @@ describe('Agent Exploration E2E Test', () => {
     password: 'admin123',
   };
 
+  // Shared state between tests
+  let sessionId: string;
+  let completedSession: SessionData;
+  let graphData: GraphData;
+
   beforeAll(async () => {
     // Start all services
     console.log('Setting up services...');
@@ -49,89 +54,85 @@ describe('Agent Exploration E2E Test', () => {
     await stopAllServices();
   }, 30000); // 30 seconds for cleanup
 
-  it(
-    'should deploy agent, explore test-app, and generate expected graph and user stories',
-    async () => {
-      // Step 1: Deploy agent
-      console.log('Starting agent exploration...');
-      const explorationResponse = await startExploration({
-        url: TEST_APP_URL,
-        credentials: TEST_CREDENTIALS,
-      });
+  it('should deploy agent and start exploration', async () => {
+    console.log('Starting agent exploration...');
+    const explorationResponse = await startExploration({
+      url: TEST_APP_URL,
+      credentials: TEST_CREDENTIALS,
+    });
 
-      expect(explorationResponse.sessionId).toBeDefined();
-      expect(explorationResponse.status).toBe('started');
-      console.log(`Agent session started: ${explorationResponse.sessionId}`);
+    expect(explorationResponse.sessionId).toBeDefined();
+    expect(explorationResponse.status).toBe('started');
+    
+    sessionId = explorationResponse.sessionId;
+    console.log(`Agent session started: ${sessionId}`);
+  }, 120000); // 2 minutes timeout
 
-      // Step 2: Wait for completion
-      console.log('Waiting for exploration to complete...');
-      const completedSession = await waitForCompletion(
-        explorationResponse.sessionId,
-        600000 // 10 minutes timeout
-      );
+  it('should complete exploration and validate session structure', async () => {
+    console.log('Waiting for exploration to complete...');
+    completedSession = await waitForCompletion(sessionId, 120000);
 
-      expect(completedSession.status).toBe('completed');
-      console.log('Exploration completed');
+    expect(completedSession.status).toBe('completed');
+    expect(completedSession.sessionId).toBe(sessionId);
+    console.log('Exploration completed');
 
-      // Step 3: Validate session structure
-      console.log('Validating session data...');
-      expect(completedSession.sessionId).toBe(explorationResponse.sessionId);
-      expect(completedSession.tokenUsage).toBeDefined();
-      expect(completedSession.tokenUsage?.exploration).toBeDefined();
-      expect(completedSession.tokenUsage?.userStories).toBeDefined();
-      expect(completedSession.tokenUsage?.total).toBeDefined();
+    console.log('Validating session data...');
+    expect(completedSession.tokenUsage).toBeDefined();
+    expect(completedSession.tokenUsage?.exploration).toBeDefined();
+    expect(completedSession.tokenUsage?.userStories).toBeDefined();
+    expect(completedSession.tokenUsage?.total).toBeDefined();
+  }, 120000); // 2 minutes timeout
 
-      // Step 4: Fetch and validate graph
-      console.log('Fetching graph data...');
-      const graphData = await getGraph(explorationResponse.sessionId);
-      expect(graphData.nodes).toBeDefined();
-      expect(graphData.edges).toBeDefined();
-      expect(Array.isArray(graphData.nodes)).toBe(true);
-      expect(Array.isArray(graphData.edges)).toBe(true);
+  it('should fetch and validate graph structure', async () => {
+    console.log('Fetching graph data...');
+    graphData = await getGraph(sessionId);
+    
+    expect(graphData.nodes).toBeDefined();
+    expect(graphData.edges).toBeDefined();
+    expect(Array.isArray(graphData.nodes)).toBe(true);
+    expect(Array.isArray(graphData.edges)).toBe(true);
 
-      console.log('Validating graph structure...');
-      const graphMatch = matchGraph(graphData, expectedData.graph as GraphData);
-      
-      if (graphMatch.warnings.length > 0) {
-        console.warn('Graph validation warnings:');
-        graphMatch.warnings.forEach((warning) => console.warn(`  - ${warning}`));
-      }
+    console.log('Validating graph structure...');
+    const graphMatch = matchGraph(graphData, expectedData.graph as GraphData);
+    
+    if (graphMatch.warnings.length > 0) {
+      console.warn('Graph validation warnings:');
+      graphMatch.warnings.forEach((warning) => console.warn(`  - ${warning}`));
+    }
 
-      if (!graphMatch.success) {
-        console.error('Graph validation errors:');
-        graphMatch.errors.forEach((error) => console.error(`  - ${error}`));
-      }
+    if (!graphMatch.success) {
+      console.error('Graph validation errors:');
+      graphMatch.errors.forEach((error) => console.error(`  - ${error}`));
+    }
 
-      expect(graphMatch.success).toBe(true);
-      expect(graphMatch.errors.length).toBe(0);
+    expect(graphMatch.success).toBe(true);
+    expect(graphMatch.errors.length).toBe(0);
+  }, 120000); // 2 minutes timeout
 
-      // Step 5: Validate user stories
-      console.log('Validating user stories...');
-      expect(completedSession.userStories).toBeDefined();
-      expect(completedSession.userStories?.stories).toBeDefined();
-      expect(Array.isArray(completedSession.userStories?.stories)).toBe(true);
+  it('should validate user stories', async () => {
+    console.log('Validating user stories...');
+    expect(completedSession.userStories).toBeDefined();
+    expect(completedSession.userStories?.stories).toBeDefined();
+    expect(Array.isArray(completedSession.userStories?.stories)).toBe(true);
 
-      const userStoryMatch = matchUserStories(
-        completedSession.userStories!,
-        expectedData.userStories
-      );
+    const userStoryMatch = matchUserStories(
+      completedSession.userStories!,
+      expectedData.userStories
+    );
 
-      if (userStoryMatch.warnings.length > 0) {
-        console.warn('User story validation warnings:');
-        userStoryMatch.warnings.forEach((warning) => console.warn(`  - ${warning}`));
-      }
+    if (userStoryMatch.warnings.length > 0) {
+      console.warn('User story validation warnings:');
+      userStoryMatch.warnings.forEach((warning) => console.warn(`  - ${warning}`));
+    }
 
-      if (!userStoryMatch.success) {
-        console.error('User story validation errors:');
-        userStoryMatch.errors.forEach((error) => console.error(`  - ${error}`));
-      }
+    if (!userStoryMatch.success) {
+      console.error('User story validation errors:');
+      userStoryMatch.errors.forEach((error) => console.error(`  - ${error}`));
+    }
 
-      expect(userStoryMatch.success).toBe(true);
-      expect(userStoryMatch.errors.length).toBe(0);
-
-      console.log('All validations passed!');
-    },
-    600000 // 10 minutes timeout for the test
-  );
+    expect(userStoryMatch.success).toBe(true);
+    expect(userStoryMatch.errors.length).toBe(0);
+    console.log('All validations passed!');
+  }, 120000); // 2 minutes timeout
 });
 

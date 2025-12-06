@@ -1,0 +1,38 @@
+---
+alwaysApply: true
+---
+
+When writing commit messages, follow these rules:
+
+Keep messages short and concise. Focus on product impact and user-facing changes. Avoid mentioning implementation details, file names, or line numbers.
+
+Format: <type>: <short description>
+
+Types:
+- feat: New features or significant product capabilities
+- fix: Bug fixes that affect user experience
+- perf: Performance improvements visible to users
+- refactor: Code refactoring (use sparingly, only for major architectural changes)
+- docs: Documentation updates
+- chore: Maintenance tasks (dependencies, tooling, etc.)
+
+Good examples:
+- feat: Add user story retry validation
+- fix: Resolve graph visualization loading issue
+- perf: Improve agent exploration speed by 40%
+- feat: Support multiple LLM providers
+- fix: Handle authentication failures gracefully
+
+Avoid:
+- fix: Update error handling in agent-service.ts
+- refactor: Extract helper function for DOM parsing
+- chore: Update TypeScript version
+- fix: Add null check in line 42
+- refactor: Rename variable from x to y
+
+Guidelines:
+1. Write from user perspective - What does this change enable or fix for users?
+2. Be specific but concise - "Add retry validation" is better than "Update retry" or "Fix stuff"
+3. Skip file names and line numbers - The diff shows where changes were made
+4. Avoid technical jargon - Use product/feature language when possible
+5. Group related changes - One commit per logical change, not per file

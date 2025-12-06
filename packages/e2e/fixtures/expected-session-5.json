@@ -28,7 +28,7 @@
         "id": "http://localhost:5173/users/list",
         "label": "http://localhost:5173/users/list",
         "url": "http://localhost:5173/users/list",
-        "fingerprint": "7ee93664b588bb6f"
+        "fingerprint": "temp"
       },
       {
         "id": "http://localhost:5173/users/create",
@@ -52,6 +52,12 @@
       },
       {
         "source": "http://localhost:5173/users/list",
+        "target": "http://localhost:5173/users/list",
+        "label": "Batch: clickElement on button.toast-close → clickElement on button.delete-button",
+        "selector": "button.toast-close"
+      },
+      {
+        "source": "http://localhost:5173/users/list",
         "target": "http://localhost:5173/users/create",
         "label": "clickElement on button.create-button-header",
         "selector": "button.create-button-header"
@@ -64,7 +70,7 @@
       },
       {
         "source": "http://localhost:5173/users/create",
-        "target": "http://localhost:5173/users/create",
+        "target": "http://localhost:5173/users/list",
         "label": "Batch: typeText on #username with text \"new_user_test\" → typeText on #password with text \"password123\" → clickElement on button.create-button",
         "selector": "#username"
       }
@@ -99,6 +105,7 @@
           "Enter a new username, for example, 'new_user_test'.",
           "Enter a new password, for example, 'password123'.",
           "Click the 'Create' button to add the new user.",
+          "I am immediately redirected to the user list page, and a success toast notification appears confirming the user was created.",
           "Alternatively, if I decide not to create a user, I can click the 'Back' button to return to the user list without saving."
         ],
         "flow": [
@@ -109,8 +116,8 @@
           },
           {
             "from": "http://localhost:5173/users/create",
-            "to": "http://localhost:5173/users/create",
-            "action": "Fills in the new user's username and password, then clicks the 'Create' button."
+            "to": "http://localhost:5173/users/list",
+            "action": "Fills in the new user's username and password, then clicks the 'Create' button. The user is created and I am redirected to the user list page with a success toast notification."
           },
           {
             "from": "http://localhost:5173/users/create",

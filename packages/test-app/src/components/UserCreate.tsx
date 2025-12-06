@@ -8,12 +8,10 @@ export function UserCreate() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setSuccess(false);
 
     if (!username || !password) {
       setError('Please enter both username and password');
@@ -27,9 +25,7 @@ export function UserCreate() {
     }
 
     addUser({ username, password });
-    setSuccess(true);
-    setUsername('');
-    setPassword('');
+    navigate('/users/list', { state: { successMessage: 'User created successfully!' } });
   };
 
   return (
@@ -65,7 +61,6 @@ export function UserCreate() {
             />
           </div>
           {error && <p className="error-message">{error}</p>}
-          {success && <p className="success-message">User created successfully!</p>}
           <button type="submit" className="create-button">
             Create User
           </button>

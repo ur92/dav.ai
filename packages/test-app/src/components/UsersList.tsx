@@ -1,16 +1,31 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { getUsers, deleteUser, logout, type User } from '../utils/storage';
 import './UsersList.css';
 
 export function UsersList() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [users, setUsers] = useState<User[]>([]);
-  const [successMessage, setSuccessMessage] = useState<string>('');
+  const [toastMessage, setToastMessage] = useState<string>('');
 
   useEffect(() => {
     loadUsers();
-  }, []);
+    
+    // Check for success message from navigation state
+    if (location.state?.successMessage) {
+      setToastMessage(location.state.successMessage);
+      // Clear the state to prevent showing the message again on refresh
+      window.history.replaceState({}, document.title);
+      
+      // Auto-dismiss toast after 10 seconds
+      const timer = setTimeout(() => {
+        setToastMessage('');
+      }, 10000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [location.state]);
 
   const loadUsers = () => {
     setUsers(getUsers());
@@ -19,7 +34,12 @@ export function UsersList() {
   const handleDeleteUser = (id: string) => {
     deleteUser(id);
     loadUsers();
-    setSuccessMessage('User deleted successfully');
+    setToastMessage('User deleted successfully');
+    
+    // Auto-dismiss toast after 10 seconds
+    setTimeout(() => {
+      setToastMessage('');
+    }, 10000);
   };
 
   const handleLogout = () => {
@@ -29,6 +49,20 @@ export function UsersList() {
 
   return (
     <div className="users-container">
+      {toastMessage && (
+        <div className="toast">
+          <div className="toast-content">
+            <span className="toast-message">{toastMessage}</span>
+            <button 
+              className="toast-close" 
+              onClick={() => setToastMessage('')}
+              aria-label="Close toast"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
       <div className="users-header">
         <h1>User Management</h1>
         <div className="header-actions">
@@ -69,7 +103,6 @@ export function UsersList() {
           )}
         </div>
       </div>
-      {successMessage && <p className="success-message">{successMessage}</p>}
     </div>
   );
 }

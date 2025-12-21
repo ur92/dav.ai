@@ -1,23 +1,18 @@
-.user-create-container {
+.user-edit-container {
   background: white;
   border-radius: 12px;
   padding: 30px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.user-create-card {
-  max-width: 500px;
-  margin: 0 auto;
-}
-
-.user-create-header {
+.user-edit-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 30px;
 }
 
-.user-create-header h1 {
+.user-edit-header h1 {
   margin: 0;
   color: #333;
   font-size: 28px;
@@ -75,16 +70,7 @@
   font-size: 14px;
 }
 
-.success-message {
-  color: #27ae60;
-  margin-bottom: 15px;
-  padding: 10px;
-  background: #d4edda;
-  border-radius: 6px;
-  font-size: 14px;
-}
-
-.create-button {
+.save-button {
   width: 100%;
   padding: 12px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -97,53 +83,29 @@
   transition: transform 0.2s, box-shadow 0.2s;
 }
 
-.create-button:hover {
+.save-button:hover {
   transform: translateY(-2px);
   box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
 }
 
 /* Responsive Design */
 @media (max-width: 768px) {
-  .user-create-container {
-    padding: 20px;
+  .user-edit-container {
+    padding: 25px;
   }
 
-  .user-create-header {
+  .user-edit-header {
     flex-direction: column;
     gap: 15px;
     align-items: flex-start;
-    margin-bottom: 25px;
   }
 
-  .user-create-header h1 {
+  .user-edit-header h1 {
     font-size: 24px;
-    width: 100%;
   }
 
   .back-button {
     width: 100%;
-    padding: 10px 16px;
-    font-size: 15px;
-  }
-
-  .form-group {
-    margin-bottom: 18px;
-  }
-
-  .form-group input {
-    padding: 10px;
-    font-size: 16px; /* Prevent zoom on iOS */
-  }
-
-  .create-button {
-    padding: 14px; /* Larger touch target */
-    font-size: 16px;
-  }
-}
-
-@media (max-width: 480px) {
-  .user-create-container {
-    padding: 15px;
   }
 }
 

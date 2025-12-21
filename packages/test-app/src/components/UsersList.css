@@ -1,13 +1,13 @@
 .users-container {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 20px;
-  position: relative;
+  background: white;
+  border-radius: 12px;
+  padding: 30px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .toast {
   position: fixed;
-  top: 20px;
+  top: 80px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 1000;
@@ -68,11 +68,10 @@
 }
 
 .users-header {
-  max-width: 1200px;
-  margin: 0 auto 30px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: 30px;
 }
 
 .header-actions {
@@ -83,52 +82,35 @@
 
 .create-button-header {
   padding: 10px 20px;
-  background: rgba(255, 255, 255, 0.2);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
-  border: 2px solid white;
+  border: none;
   border-radius: 8px;
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.3s;
+  transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .create-button-header:hover {
-  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
 }
 
 .users-header h1 {
-  color: white;
+  color: #333;
   margin: 0;
-  font-size: 32px;
-}
-
-.logout-button {
-  padding: 10px 20px;
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  border: 2px solid white;
-  border-radius: 8px;
-  font-size: 16px;
+  font-size: 28px;
   font-weight: 600;
-  cursor: pointer;
-  transition: background 0.3s;
 }
 
-.logout-button:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
 
-.users-content {
-  max-width: 1200px;
-  margin: 0 auto;
-}
 
 .users-list-card {
-  background: white;
-  border-radius: 12px;
-  padding: 30px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 20px;
+  border: 1px solid #e0e0e0;
 }
 
 .users-list-card h2 {
@@ -213,22 +195,39 @@
 .users-table {
   display: flex;
   flex-direction: column;
-}
-
-.table-header,
-.table-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 20px;
-  padding: 15px;
-  border-bottom: 1px solid #e0e0e0;
+  width: 100%;
 }
 
 .table-header {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr 1fr auto !important;
+  gap: 24px;
+  padding: 15px 20px;
+  border-bottom: 1px solid #e0e0e0;
+  width: 100%;
+  box-sizing: border-box;
   background: #f5f5f5;
   font-weight: 600;
   color: #555;
   border-radius: 8px 8px 0 0;
+  align-items: center;
+}
+
+.table-row {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr 1fr auto !important;
+  gap: 24px;
+  padding: 15px 20px;
+  border-bottom: 1px solid #e0e0e0;
+  width: 100%;
+  box-sizing: border-box;
+  align-items: center;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .table-row:last-child {
@@ -242,22 +241,92 @@
 .table-cell {
   display: flex;
   align-items: center;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
 }
 
+
+.username-cell {
+  font-weight: 500;
+  color: #333;
+}
+
+.badges-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.summary-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  background: #e3f2fd;
+  color: #1976d2;
+  border: 1px solid #90caf9;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.summary-badge.more-badge {
+  background: #f5f5f5;
+  color: #666;
+  border-color: #e0e0e0;
+}
+
+.empty-badge {
+  color: #999;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.view-button,
+.edit-button,
 .delete-button {
   padding: 8px 16px;
-  background: #e74c3c;
-  color: white;
   border: none;
   border-radius: 6px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.3s;
+  transition: background 0.3s, transform 0.2s;
+}
+
+.view-button {
+  background: #3498db;
+  color: white;
+}
+
+.view-button:hover {
+  background: #2980b9;
+  transform: translateY(-1px);
+}
+
+.edit-button {
+  background: #f39c12;
+  color: white;
+}
+
+.edit-button:hover {
+  background: #e67e22;
+  transform: translateY(-1px);
+}
+
+.delete-button {
+  background: #e74c3c;
+  color: white;
 }
 
 .delete-button:hover {
   background: #c0392b;
+  transform: translateY(-1px);
 }
 
 /* Responsive Design */
@@ -276,6 +345,16 @@
 
   .users-list-card {
     padding: 25px;
+  }
+
+  .table-header {
+    grid-template-columns: 1fr 1fr 1fr auto !important;
+    gap: 20px;
+  }
+
+  .table-row {
+    grid-template-columns: 1fr 1fr 1fr auto !important;
+    gap: 20px;
   }
 }
 
@@ -355,6 +434,26 @@
     margin-bottom: 4px;
   }
 
+  .table-cell:nth-child(2)::before {
+    content: 'Groups:';
+    font-size: 12px;
+    font-weight: 500;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+
+  .table-cell:nth-child(3)::before {
+    content: 'Permissions:';
+    font-size: 12px;
+    font-weight: 500;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+
   .delete-button {
     width: 100%;
     padding: 12px;
@@ -401,9 +500,12 @@
     max-width: 100%;
   }
 
-  .table-header,
+  .table-header {
+    gap: 20px;
+  }
+
   .table-row {
-    gap: 15px;
+    gap: 20px;
   }
 }
 

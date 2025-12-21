@@ -1,12 +1,25 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getUsers, deleteUser, logout, type User } from '../utils/storage';
+import {
+  getUsers,
+  deleteUser,
+  getGroupsForUser,
+  getEffectivePermissions,
+  type User,
+} from '../utils/storage';
 import './UsersList.css';
+
+interface UserWithSummary extends User {
+  groupsCount: number;
+  permissionsCount: number;
+  groups: string[];
+  permissions: string[];
+}
 
 export function UsersList() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<UserWithSummary[]>([]);
   const [toastMessage, setToastMessage] = useState<string>('');
 
   useEffect(() => {
@@ -28,7 +41,19 @@ export function UsersList() {
   }, [location.state]);
 
   const loadUsers = () => {
-    setUsers(getUsers());
+    const allUsers = getUsers();
+    const usersWithSummary: UserWithSummary[] = allUsers.map((user) => {
+      const groups = getGroupsForUser(user.id);
+      const permissions = getEffectivePermissions(user.id);
+      return {
+        ...user,
+        groupsCount: groups.length,
+        permissionsCount: permissions.length,
+        groups: groups.map((g) => g.name),
+        permissions: permissions.map((p) => p.name),
+      };
+    });
+    setUsers(usersWithSummary);
   };
 
   const handleDeleteUser = (id: string) => {
@@ -42,10 +67,6 @@ export function UsersList() {
     }, 10000);
   };
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
 
   return (
     <div className="users-container">
@@ -69,9 +90,6 @@ export function UsersList() {
           <button onClick={() => navigate('/users/create')} className="create-button-header">
             Create User
           </button>
-          <button onClick={handleLogout} className="logout-button">
-            Logout
-          </button>
         </div>
       </div>
 
@@ -84,18 +102,62 @@ export function UsersList() {
             <div className="users-table">
               <div className="table-header">
                 <div className="table-cell">Username</div>
+                <div className="table-cell">Groups</div>
+                <div className="table-cell">Permissions</div>
                 <div className="table-cell">Actions</div>
               </div>
               {users.map((user) => (
                 <div key={user.id} className="table-row">
-                  <div className="table-cell">{user.username}</div>
                   <div className="table-cell">
-                    <button
-                      onClick={() => handleDeleteUser(user.id)}
-                      className="delete-button"
-                    >
-                      Delete
-                    </button>
+                    <div className="username-cell">{user.username}</div>
+                  </div>
+                  <div className="table-cell">
+                    <div className="badges-container">
+                      {user.groups.slice(0, 2).map((group, idx) => (
+                        <span key={idx} className="summary-badge">{group}</span>
+                      ))}
+                      {user.groups.length > 2 && (
+                        <span className="summary-badge more-badge">+{user.groups.length - 2}</span>
+                      )}
+                      {user.groups.length === 0 && (
+                        <span className="empty-badge">-</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="table-cell">
+                    <div className="badges-container">
+                      {user.permissions.slice(0, 2).map((permission, idx) => (
+                        <span key={idx} className="summary-badge">{permission}</span>
+                      ))}
+                      {user.permissions.length > 2 && (
+                        <span className="summary-badge more-badge">+{user.permissions.length - 2}</span>
+                      )}
+                      {user.permissions.length === 0 && (
+                        <span className="empty-badge">-</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="table-cell">
+                    <div className="action-buttons">
+                      <button
+                        onClick={() => navigate(`/users/${user.id}`)}
+                        className="view-button"
+                      >
+                        View
+                      </button>
+                      <button
+                        onClick={() => navigate(`/users/edit/${user.id}`)}
+                        className="edit-button"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteUser(user.id)}
+                        className="delete-button"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

@@ -14,6 +14,13 @@ export function createPersistStage(context: StageContext) {
       return {}; // Return empty update to preserve state
     }
 
+    // Handle BACKTRACK status - just pass through without changes
+    // The backtrack will be handled by the observe stage in the next cycle
+    if (state.explorationStatus === 'BACKTRACK' && state.neo4jQueries.length === 0) {
+      logger.info('PERSIST', 'Backtrack requested - passing through', undefined, context.sessionId);
+      return {}; // Preserve BACKTRACK status
+    }
+
     if (state.neo4jQueries.length === 0) {
       return {};
     }

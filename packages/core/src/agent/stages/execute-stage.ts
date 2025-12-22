@@ -1,11 +1,15 @@
-import { DavAgentState, PendingAction } from '../../types/state.js';
+import { DavAgentState, PendingAction, ExplorationState } from '../../types/state.js';
 import { StageContext } from './stage-context.js';
 import { logger } from '../../utils/logger.js';
 import { Neo4jTools } from '../../utils/neo4j-tools.js';
+import { markActionExploredByUrl, updateBacktrackStack, getTextFromDomLine } from '../helpers/backtrack-helpers.js';
 
 /**
  * Creates the execute_tool node handler
  * Node 3: execute_tool - Execute pending actions in batch and generate Cypher queries
+ * 
+ * Now marks executed actions as explored in the exploration frontier,
+ * enabling action-based exploration tracking.
  */
 export function createExecuteStage(context: StageContext) {
   return async (state: DavAgentState): Promise<Partial<DavAgentState>> => {
@@ -15,24 +19,34 @@ export function createExecuteStage(context: StageContext) {
       return {}; // Return empty update to preserve state
     }
 
+    // Handle BACKTRACK status - just pass through to observe stage
+    if (state.explorationStatus === 'BACKTRACK') {
+      logger.info('EXECUTE', 'Backtrack requested - passing through', undefined, context.sessionId);
+      return {}; // Let observe stage handle the backtrack
+    }
+
     // Support both old single action and new batch actions
     const actionsToExecute: PendingAction[] = state.pendingActions.length > 0 
       ? state.pendingActions 
       : (state.pendingAction ? [state.pendingAction] : []);
 
     if (actionsToExecute.length === 0) {
+      // No actions - this might happen during backtracking, not necessarily a failure
+      logger.warn('EXECUTE', 'No pending actions to execute', undefined, context.sessionId);
       return {
-        explorationStatus: 'FAILURE',
+        explorationStatus: 'CONTINUE',  // Don't fail, let the cycle continue
         actionHistory: ['[EXECUTE] No pending actions to execute.'],
       };
     }
 
     try {
       const fromUrl = state.currentUrl;
+      const currentFingerprint = state.currentFingerprint;
 
-      // Build action description for checking duplicates
+      // Build action description for checking duplicates (include text for unique ID)
       const actionDescriptions = actionsToExecute.map(a => {
-        if (a.tool === 'clickElement') return `${a.tool} on ${a.selector}`;
+        const actionText = a.text || getTextFromDomLine(state.domState, a.selector || '');
+        if (a.tool === 'clickElement') return `${a.tool} on ${a.selector} [${actionText}]`;
         if (a.tool === 'typeText') return `${a.tool} on ${a.selector} with text "${a.text}"`;
         if (a.tool === 'selectOption') return `${a.tool} on ${a.selector} with value "${a.value}"`;
         if (a.tool === 'navigate') return `${a.tool} to ${a.url}`;
@@ -42,12 +56,38 @@ export function createExecuteStage(context: StageContext) {
         ? `Batch: ${actionDescriptions.join(' → ')}`
         : actionDescriptions[0];
 
-      // Create a unique key for this transition attempt (fromUrl + action description + selector)
-      const transitionKey = `${fromUrl}|||${batchDescription}|||${actionsToExecute[0]?.selector || ''}`;
+      // Create a unique key for this transition attempt (fromUrl + action description with text)
+      // Include action text in the key to distinguish between different elements with same selector
+      const firstAction = actionsToExecute[0];
+      const firstActionText = firstAction?.text || getTextFromDomLine(state.domState, firstAction?.selector || '');
+      const transitionKey = `${fromUrl}|||${firstAction?.selector || ''}|||${firstActionText}`;
       
       // Check if we've already executed this exact transition in this session
       if (context.executedTransitions.has(transitionKey)) {
         logger.info('EXECUTE', `Skipping duplicate transition: ${fromUrl} -> [${batchDescription}]`, undefined, context.sessionId);
+        
+        // Increment consecutive skip counter for loop detection
+        context.consecutiveSkipCount.value++;
+        
+        // If we've skipped too many times in a row, we're stuck in a loop - end exploration
+        const MAX_CONSECUTIVE_SKIPS = 5;
+        if (context.consecutiveSkipCount.value >= MAX_CONSECUTIVE_SKIPS) {
+          logger.warn('EXECUTE', `Detected loop: ${context.consecutiveSkipCount.value} consecutive duplicate skips. Ending exploration.`, undefined, context.sessionId);
+          return {
+            actionHistory: [`[EXECUTE] Exploration ended due to repeated duplicate attempts (loop detected)`],
+            explorationStatus: 'FLOW_END',
+            pendingActions: [],
+            pendingAction: null,
+          };
+        }
+        
+        // Mark the action as explored even if we're skipping it (by URL, with text for uniqueness)
+        for (const action of actionsToExecute) {
+          if (action.selector) {
+            const actionText = action.text || getTextFromDomLine(state.domState, action.selector);
+            markActionExploredByUrl(context.explorationFrontier, fromUrl, action.selector, actionText);
+          }
+        }
         
         // Still need to observe the current state to continue exploration
         const currentObservation = await context.browserTools.observe();
@@ -59,10 +99,14 @@ export function createExecuteStage(context: StageContext) {
           pendingAction: null,
         };
       }
+      
+      // Reset consecutive skip counter since we're executing a new action
+      context.consecutiveSkipCount.value = 0;
 
       logger.info('EXECUTE', `Executing ${actionsToExecute.length} action(s) in batch...`, undefined, context.sessionId);
 
       const executedActions: string[] = [];
+      const executedSelectors: string[] = [];
       let finalUrl = fromUrl;
 
       // Execute all actions in sequence
@@ -80,6 +124,7 @@ export function createExecuteStage(context: StageContext) {
               logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Clicking: ${action.selector}`, undefined, context.sessionId);
               await context.browserTools.clickElement(action.selector);
               executedActions.push(`${action.tool} on ${action.selector}`);
+              executedSelectors.push(action.selector);
               logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Clicked successfully`, undefined, context.sessionId);
               break;
 
@@ -91,6 +136,7 @@ export function createExecuteStage(context: StageContext) {
               logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Typing into ${action.selector}: "${textPreview}"`, undefined, context.sessionId);
               await context.browserTools.typeText(action.selector, action.text);
               executedActions.push(`${action.tool} on ${action.selector} with text "${action.text.substring(0, 20)}${action.text.length > 20 ? '...' : ''}"`);
+              executedSelectors.push(action.selector);
               logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Text entered successfully`, undefined, context.sessionId);
               break;
 
@@ -101,6 +147,7 @@ export function createExecuteStage(context: StageContext) {
               logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Selecting "${action.value}" from ${action.selector}`, undefined, context.sessionId);
               await context.browserTools.selectOption(action.selector, action.value);
               executedActions.push(`${action.tool} on ${action.selector} with value "${action.value}"`);
+              executedSelectors.push(action.selector);
               logger.info('EXECUTE', `[${i + 1}/${actionsToExecute.length}] Option selected successfully`, undefined, context.sessionId);
               break;
 
@@ -120,9 +167,30 @@ export function createExecuteStage(context: StageContext) {
             error: error instanceof Error ? error.message : String(error),
             action: action.tool,
           }, context.sessionId);
+          
+          // Mark failed action as explored to avoid retrying (by URL, with text for uniqueness)
+          if (action.selector) {
+            const actionText = action.text || getTextFromDomLine(state.domState, action.selector);
+            markActionExploredByUrl(context.explorationFrontier, fromUrl, action.selector, actionText);
+            logger.info('EXECUTE', `Marked failed action as explored: ${action.selector}`, undefined, context.sessionId);
+          }
+          
           throw error;
         }
       }
+
+      // Mark all executed actions as explored in the current state (by URL, with text for uniqueness)
+      for (let i = 0; i < executedSelectors.length; i++) {
+        const selector = executedSelectors[i];
+        const action = actionsToExecute[i];
+        const actionText = action?.text || getTextFromDomLine(state.domState, selector);
+        markActionExploredByUrl(context.explorationFrontier, fromUrl, selector, actionText);
+      }
+      logger.info('EXECUTE', `Marked ${executedSelectors.length} action(s) as explored at ${fromUrl}`, undefined, context.sessionId);
+      
+      // Update backtrack stack - current state may still have unexplored actions
+      const normalizedFromUrl = fromUrl.replace(/\/$/, '').split('?')[0];
+      updateBacktrackStack(context.backtrackStack, context.explorationFrontier, normalizedFromUrl);
 
       // Wait for network to be idle after all actions (waits for 500ms of no requests)
       logger.info('EXECUTE', 'Waiting for network to be idle (500ms of no active requests)...', undefined, context.sessionId);
@@ -166,7 +234,7 @@ export function createExecuteStage(context: StageContext) {
       }
 
       // Merge the "from" state
-      queries.push(Neo4jTools.generateMergeStateQuery(fromUrl, 'temp', context.sessionId));
+      queries.push(Neo4jTools.generateMergeStateQuery(fromUrl, currentFingerprint || 'temp', context.sessionId));
 
       // Merge the "to" state
       queries.push(Neo4jTools.generateMergeStateQuery(finalUrl, newObservation.fingerprint, context.sessionId));
@@ -186,6 +254,12 @@ export function createExecuteStage(context: StageContext) {
         ? `[EXECUTE] Batch executed: ${executedActions.join(' → ')}. Transitioned from ${fromUrl} to ${finalUrl}. [DUPLICATE TRANSITION - SKIPPED]`
         : `[EXECUTE] Batch executed: ${executedActions.join(' → ')}. Transitioned from ${fromUrl} to ${finalUrl}.`;
 
+      // Convert frontier to serializable format for state
+      const frontierRecord: Record<string, ExplorationState> = {};
+      context.explorationFrontier.forEach((value, key) => {
+        frontierRecord[key] = value;
+      });
+
       return {
         currentUrl: finalUrl,
         neo4jQueries: queries,
@@ -193,16 +267,22 @@ export function createExecuteStage(context: StageContext) {
         explorationStatus: 'CONTINUE',
         pendingActions: [], // Clear executed actions
         pendingAction: null, // Clear for backward compatibility
+        explorationFrontier: frontierRecord,
+        backtrackStack: [...context.backtrackStack],
       };
     } catch (error) {
       logger.error('EXECUTE', 'Error in batch execution', { error: error instanceof Error ? error.message : String(error) }, context.sessionId);
+      
+      // On error, trigger backtrack instead of failing completely
+      // This allows exploration to continue from a different state
+      logger.info('EXECUTE', 'Action failed - triggering backtrack to continue exploration', undefined, context.sessionId);
+      
       return {
-        explorationStatus: 'FAILURE',
-        actionHistory: [`[EXECUTE] Error: ${error instanceof Error ? error.message : String(error)}`],
+        explorationStatus: 'BACKTRACK',
+        actionHistory: [`[EXECUTE] Error: ${error instanceof Error ? error.message : String(error)} - triggering backtrack`],
         pendingActions: [], // Clear on error
         pendingAction: null,
       };
     }
   };
 }
-

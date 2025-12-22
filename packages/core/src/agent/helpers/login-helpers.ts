@@ -4,29 +4,58 @@
 
 /**
  * Detect if the current page is a login screen
+ * More specific detection to avoid false positives on user creation forms
  */
 export function detectLoginScreen(domState: string): boolean {
   const lowerDom = domState.toLowerCase();
-  // Look for common login indicators
-  const loginIndicators = [
-    'type="password"',
-    'password',
-    'username',
-    'login',
-    'sign in',
-    'autocomplete="username"',
-    'autocomplete="current-password"',
-    'id="username"',
-    'id="password"',
-    'name="username"',
-    'name="password"',
+  
+  // Negative indicators - if present, this is NOT a login screen
+  const notLoginIndicators = [
+    'create user',
+    'new user',
+    'register',
+    'sign up',
+    'signup',
+    'create account',
+    'edit user',
+    'update user',
+    'add user',
   ];
   
-  // Count how many indicators we find
-  const foundIndicators = loginIndicators.filter(indicator => lowerDom.includes(indicator)).length;
+  // If we find negative indicators, it's not a login screen
+  if (notLoginIndicators.some(indicator => lowerDom.includes(indicator))) {
+    return false;
+  }
   
-  // If we find at least 2 indicators (e.g., password field + username field), it's likely a login screen
-  return foundIndicators >= 2;
+  // Positive indicators - strong signals that this is a login screen
+  const strongLoginIndicators = [
+    'log in',
+    'login',
+    'sign in',
+    'signin',
+  ];
+  
+  // Check for strong login indicators in button/heading text
+  const hasLoginButton = strongLoginIndicators.some(indicator => {
+    // Look for login button text or login heading
+    return lowerDom.includes(`text: "${indicator}"`) || 
+           lowerDom.includes(`"${indicator}"`) ||
+           lowerDom.includes(`>${indicator}<`);
+  });
+  
+  // Required fields for login
+  const hasPasswordField = lowerDom.includes('type="password"') || 
+                           lowerDom.includes('type: password') ||
+                           lowerDom.includes('#password');
+  
+  const hasUsernameField = lowerDom.includes('id="username"') || 
+                           lowerDom.includes('#username') ||
+                           lowerDom.includes('autocomplete="username"');
+  
+  // A login screen should have:
+  // 1. A password field AND a username field
+  // 2. A login/sign-in button or indicator
+  return hasPasswordField && hasUsernameField && hasLoginButton;
 }
 
 /**

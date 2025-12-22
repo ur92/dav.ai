@@ -4,23 +4,44 @@
 
 /**
  * Detect if the current page contains modal/dialog indicators
+ * Generic detection using ARIA attributes, common patterns, and overlay elements
  */
 export function detectModal(domState: string): boolean {
   const lowerDom = domState.toLowerCase();
   
   // Look for common modal/dialog indicators
   const modalIndicators = [
+    // ARIA attributes (most reliable)
     'role="dialog"',
     'aria-modal="true"',
+    'aria-labelledby',
+    'aria-describedby',
+    
+    // Common class patterns (generic, not app-specific)
     'class="dialog',
     'class="modal',
     'class="overlay',
+    'class="backdrop',
     'class="popup',
+    'class="popover',
+    
+    // DOM state markers (from browser-tools extraction)
     '[modal]',
     '[dialog]',
+    
+    // Common framework patterns (generic)
+    'modal-dialog',
+    'modal-content',
+    'modal-overlay',
+    'modal-backdrop',
+    'dialog-container',
+    'dialog-overlay',
+    
+    // React/common component patterns (generic)
     'el-dialog',
     'el-p-modal-dialog',
-    'modal-dialog',
+    'ant-modal',
+    'mui-dialog',
   ];
   
   // Check if any modal indicators are present

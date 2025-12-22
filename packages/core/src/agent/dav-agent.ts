@@ -3,7 +3,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { DavAgentState, PendingAction } from '../types/state.js';
+import { DavAgentState, PendingAction, ExplorationState, BacktrackTarget } from '../types/state.js';
 import { BrowserTools } from '../utils/browser-tools.js';
 import { Neo4jTools } from '../utils/neo4j-tools.js';
 import { logger } from '../utils/logger.js';
@@ -15,6 +15,10 @@ import { createPersistStage } from './stages/persist-stage.js';
 
 /**
  * DAV Agent - Main LangGraph StateGraph implementation
+ * 
+ * Uses action-based frontier exploration instead of cycle detection.
+ * Tracks explored/unexplored actions per page state and backtracks
+ * when a page is exhausted to continue exploring other states.
  */
 export class DavAgent {
   private graph: StateGraph<DavAgentState>;
@@ -28,6 +32,12 @@ export class DavAgent {
   private executedTransitions: Set<string> = new Set(); // Track executed transitions to avoid duplicates
   private interactedModalSelectors: Set<string> = new Set(); // Track which modal elements have been interacted with
   private onTokenUsageCallback?: (inputTokens: number, outputTokens: number) => void; // Callback for tracking token usage
+  private recursionLimit: number; // Maximum recursion limit for graph execution
+  
+  // Action-based exploration state
+  private explorationFrontier: Map<string, ExplorationState> = new Map(); // fingerprint -> ExplorationState
+  private backtrackStack: BacktrackTarget[] = []; // Stack of states with unexplored actions
+  
   private stageContext: StageContext;
 
   constructor(
@@ -37,12 +47,14 @@ export class DavAgent {
     llmProvider: 'openai' | 'anthropic' | 'gemini' = 'openai',
     llmModel: string = 'gpt-4o',
     sessionId: string = `session-${Date.now()}`,
-    credentials?: { username?: string; password?: string }
+    credentials?: { username?: string; password?: string },
+    recursionLimit: number = 200
   ) {
     this.browserTools = browserTools;
     this.neo4jTools = neo4jTools;
     this.sessionId = sessionId;
     this.credentials = credentials;
+    this.recursionLimit = recursionLimit;
     
     // Initialize LLM based on provider
     if (llmProvider === 'anthropic') {
@@ -78,6 +90,11 @@ export class DavAgent {
       interactedModalSelectors: this.interactedModalSelectors,
       sessionId: this.sessionId,
       onTokenUsageCallback: this.onTokenUsageCallback,
+      // Action-based exploration state (shared across stages)
+      explorationFrontier: this.explorationFrontier,
+      backtrackStack: this.backtrackStack,
+      // Loop detection
+      consecutiveSkipCount: { value: 0 },
     } as StageContext;
 
     // Initialize the StateGraph with state schema
@@ -85,6 +102,10 @@ export class DavAgent {
     this.graph = new StateGraph<DavAgentState>({
       channels: {
         currentUrl: {
+          reducer: (x: string | undefined, y: string | undefined) => y ?? x ?? '',
+          default: () => '',
+        },
+        currentFingerprint: {
           reducer: (x: string | undefined, y: string | undefined) => y ?? x ?? '',
           default: () => '',
         },
@@ -110,7 +131,7 @@ export class DavAgent {
         },
         explorationStatus: {
           reducer: (x: string | undefined, y: string | undefined) => {
-            return (y ?? x ?? 'CONTINUE') as 'CONTINUE' | 'FLOW_END' | 'FAILURE';
+            return (y ?? x ?? 'CONTINUE') as 'CONTINUE' | 'FLOW_END' | 'FAILURE' | 'BACKTRACK';
           },
           default: () => 'CONTINUE' as const,
         },
@@ -120,8 +141,8 @@ export class DavAgent {
         },
         pendingActions: {
           reducer: (x: PendingAction[] | undefined, y: PendingAction[] | undefined) => {
-            // If new actions are provided, use them; otherwise keep existing
-            if (y && y.length > 0) {
+            // If new actions are provided (including empty array), use them; otherwise keep existing
+            if (y !== undefined) {
               return y;
             }
             return x ?? [];
@@ -137,6 +158,35 @@ export class DavAgent {
             return Array.from(new Set(merged));
           },
           default: () => [],
+        },
+        // New action-based exploration channels
+        explorationFrontier: {
+          reducer: (x: Record<string, ExplorationState> | undefined, y: Record<string, ExplorationState> | undefined) => {
+            // Merge frontiers, with newer values taking precedence
+            const merged = { ...(x ?? {}), ...(y ?? {}) };
+            return merged;
+          },
+          default: () => ({} as Record<string, ExplorationState>),
+        },
+        backtrackStack: {
+          reducer: (x: BacktrackTarget[] | undefined, y: BacktrackTarget[] | undefined) => {
+            // Use newer stack if provided, otherwise keep existing
+            if (y !== undefined) {
+              return y;
+            }
+            return x ?? [];
+          },
+          default: () => [] as BacktrackTarget[],
+        },
+        unexploredActions: {
+          reducer: (x: string[] | undefined, y: string[] | undefined) => {
+            // Use newer list if provided
+            if (y !== undefined) {
+              return y;
+            }
+            return x ?? [];
+          },
+          default: () => [] as string[],
         },
       },
     });
@@ -156,6 +206,7 @@ export class DavAgent {
     graph.addEdge('execute_tool', 'persist_data');
     graph.addConditionalEdges('persist_data', this.shouldContinue.bind(this), {
       CONTINUE: 'observe_state',
+      BACKTRACK: 'observe_state',  // Backtrack also goes to observe to re-observe the page
       END: END,
     });
   }
@@ -163,10 +214,14 @@ export class DavAgent {
 
   /**
    * Conditional edge function for routing
+   * Now handles BACKTRACK status in addition to CONTINUE and END states
    */
   private shouldContinue(state: DavAgentState): string {
     if (state.explorationStatus === 'CONTINUE') {
       return 'CONTINUE';
+    }
+    if (state.explorationStatus === 'BACKTRACK') {
+      return 'BACKTRACK';
     }
     return 'END';
   }
@@ -210,6 +265,7 @@ export class DavAgent {
 
       const initialState: DavAgentState = {
         currentUrl: startingUrl,
+        currentFingerprint: '',
         domState: '',
         actionHistory: [],
         neo4jQueries: [],
@@ -217,21 +273,41 @@ export class DavAgent {
         pendingAction: null,
         pendingActions: [],
         visitedFingerprints: [],
+        // Initialize new action-based exploration state
+        explorationFrontier: {},
+        backtrackStack: [],
+        unexploredActions: [],
       };
 
       let currentState = initialState;
 
       logger.info('AGENT', `[run] Starting exploration from: ${startingUrl}`, undefined, this.sessionId);
 
-      while (currentState.explorationStatus === 'CONTINUE') {
+      // Continue while CONTINUE or BACKTRACK status
+      let iterationCount = 0;
+      while (currentState.explorationStatus === 'CONTINUE' || currentState.explorationStatus === 'BACKTRACK') {
         try {
+          iterationCount++;
+          
+          // Warn when approaching recursion limit
+          const remainingIterations = this.recursionLimit - iterationCount;
+          if (remainingIterations <= 20 && remainingIterations > 0) {
+            logger.warn('AGENT', `[run] Approaching recursion limit: ${remainingIterations} iterations remaining. Prioritizing breadth-first exploration.`, undefined, this.sessionId);
+          }
+          
           // Set recursion limit - each cycle through the graph (observe -> decide -> execute -> persist) is multiple steps
           const result = await compiledGraph.invoke(currentState, {
-            recursionLimit: 100,
+            recursionLimit: this.recursionLimit,
           } as any);
           currentState = result as DavAgentState;
 
           logger.info('AGENT', `[run] Status: ${currentState.explorationStatus}`, undefined, this.sessionId);
+          
+          // Log exploration progress
+          const frontierSize = Object.keys(currentState.explorationFrontier || {}).length;
+          const stackSize = (currentState.backtrackStack || []).length;
+          const unexploredCount = (currentState.unexploredActions || []).length;
+          logger.info('AGENT', `[run] Exploration progress: ${frontierSize} states in frontier, ${stackSize} in backtrack stack, ${unexploredCount} unexplored actions on current page`, undefined, this.sessionId);
         } catch (error) {
           // Check if it's a recursion limit error - if FLOW_END was already set, treat as success
           if (error instanceof Error && error.message.includes('Recursion limit')) {
@@ -265,6 +341,13 @@ export class DavAgent {
       logger.info('AGENT', `Final status: ${currentState.explorationStatus}`, undefined, this.sessionId);
       logger.info('AGENT', `Final URL: ${currentState.currentUrl}`, undefined, this.sessionId);
       logger.info('AGENT', `Total actions: ${currentState.actionHistory.length}`, undefined, this.sessionId);
+      
+      // Log final exploration stats
+      const frontierSize = Object.keys(currentState.explorationFrontier || {}).length;
+      const totalExploredActions = Object.values(currentState.explorationFrontier || {})
+        .reduce((sum, state) => sum + state.exploredActions.length, 0);
+      logger.info('AGENT', `Explored ${totalExploredActions} actions across ${frontierSize} page states`, undefined, this.sessionId);
+      
       return currentState;
     } catch (error) {
       logger.error('AGENT', '[run] Fatal error in run method', {
@@ -275,4 +358,3 @@ export class DavAgent {
     }
   }
 }
-

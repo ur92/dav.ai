@@ -1,6 +1,7 @@
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { BrowserTools } from '../../utils/browser-tools.js';
 import { Neo4jTools } from '../../utils/neo4j-tools.js';
+import { ExplorationState, BacktrackTarget } from '../../types/state.js';
 
 /**
  * StageContext - Shared context passed to all stage handlers
@@ -17,5 +18,12 @@ export interface StageContext {
   interactedModalSelectors: Set<string>; // Track which modal elements have been interacted with
   sessionId: string;
   onTokenUsageCallback?: (inputTokens: number, outputTokens: number) => void;
+  
+  // Action-based exploration state (mutable across stages)
+  explorationFrontier: Map<string, ExplorationState>;  // fingerprint -> ExplorationState
+  backtrackStack: BacktrackTarget[];  // Stack of states with unexplored actions
+  
+  // Loop detection state
+  consecutiveSkipCount: { value: number };  // Track consecutive duplicate skips to detect loops
 }
 

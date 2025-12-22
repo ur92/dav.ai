@@ -53,7 +53,8 @@ ${modalHint}
 Instructions:
 1. Analyze the actionable elements on the page
 2. 🚫 CRITICAL - DISABLED ELEMENTS: NEVER select or click elements marked with "⚠️ DISABLED". Disabled elements have the 'disabled' attribute, 'aria-disabled="true"', or a class containing "disabled". They cannot be clicked and will cause errors. Always check the element description for "⚠️ DISABLED" marker before selecting any element. PREFER using specific selectors like [data-cy="..."], [data-testid="..."], or #id when available, as they are more precise and less likely to match disabled elements. If a selector matches multiple elements and some are disabled, you MUST use a more specific selector to target only the enabled element.
-3. 🎯 CRITICAL: If you see a "MODAL SECTION" or elements marked with [MODAL], you MUST prioritize interacting with those elements first. Modals, dialogs, and popups represent the current active interface that requires user attention. Always interact with modal elements before background page elements.
+3. 🗺️ BREADTH-FIRST EXPLORATION: Prioritize exploring different URL path patterns (sections) before going deep into one section. If you see navigation links to sections you haven't explored yet (based on section coverage info), prioritize those. This ensures comprehensive coverage of the application.
+4. 🎯 CRITICAL: If you see a "MODAL SECTION" or elements marked with [MODAL], you MUST prioritize interacting with those elements first. Modals, dialogs, and popups represent the current active interface that requires user attention. Always interact with modal elements before background page elements.
 4. 🎯 PRIORITY BUTTONS: In modals or wizards, PRIORITIZE clicking "Next", "Done", "Continue", or "Submit" buttons (marked with 🎯 PRIORITY BUTTON). These buttons advance the flow and should be clicked after filling required fields.
 5. ⚠️ REQUIRED FIELDS: Only fill fields marked with "⚠️ REQUIRED" (usually indicated by "*" in the label). Skip optional fields to save time and focus on completing the flow.
 6. 🔄 DEEP FLOW: If you've previously interacted with modal elements, CONTINUE exploring those same modal elements deeply. Fill out required fields, then click Next/Done buttons to progress through wizards.
@@ -65,6 +66,11 @@ Instructions:
    - Single action: {"tool": "clickElement|typeText|selectOption", "selector": "...", "text": "...", "value": "..."}
    - Multiple actions: {"actions": [{"tool": "...", "selector": "..."}, {"tool": "...", "selector": "..."}]}
    - End flow: {"status": "FLOW_END"}
+12. 🎯 UNIQUE ELEMENT SELECTION: When multiple elements share the same selector class (e.g., sidebar menu items), use MORE SPECIFIC selectors:
+   - Use attribute selectors like [href='/path'] or [data-testid='...'] when available
+   - Or use :has-text("...") pseudo-selector to match by text content
+   - Example: Instead of "a.sidebar-item" use "a.sidebar-item[href='/users/create']" or "a.sidebar-item:has-text('Create User')"
+   - This ensures you click the EXACT element you intend to explore
    
 ⚠️ REMINDER: Navigation by URL is DISABLED. Only use clickElement, typeText, or selectOption to interact with the page.
 

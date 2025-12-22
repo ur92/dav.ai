@@ -6,10 +6,14 @@ import { extractTokenUsage } from '../../utils/token-usage.js';
 import { detectLoginScreen, findLoginField, findSubmitButton } from '../helpers/login-helpers.js';
 import { extractModalElements, findModalCloseButtons } from '../helpers/modal-helpers.js';
 import { buildDecideStagePrompt, buildCredentialsHint } from './decide-stage.prompts.js';
+import { filterDomStateToUnexplored, getSectionCoverageSummary, analyzeSectionCoverage } from '../helpers/backtrack-helpers.js';
 
 /**
  * Creates the decide_action node handler
  * Node 2: decide_action - LLM decides next action or flow end
+ * 
+ * Now filters DOM to show only unexplored actions to the LLM,
+ * preventing repeated exploration of already-tried actions.
  */
 export function createDecideStage(context: StageContext) {
   return async (state: DavAgentState): Promise<Partial<DavAgentState>> => {
@@ -19,7 +23,28 @@ export function createDecideStage(context: StageContext) {
       return {}; // Return empty update to preserve state
     }
 
+    // Handle BACKTRACK status - just pass through to observe stage
+    if (state.explorationStatus === 'BACKTRACK') {
+      logger.info('DECIDE', 'Backtrack requested - passing through to observe stage', undefined, context.sessionId);
+      return {}; // Let observe stage handle the backtrack
+    }
+
     try {
+      // Check if there are unexplored actions available
+      const unexploredActions = state.unexploredActions || [];
+      
+      if (unexploredActions.length === 0) {
+        // No unexplored actions - this shouldn't happen if observe stage works correctly
+        // but handle it gracefully by triggering backtrack
+        logger.warn('DECIDE', 'No unexplored actions available - triggering backtrack', undefined, context.sessionId);
+        return {
+          explorationStatus: 'BACKTRACK',
+          actionHistory: ['[DECIDE] No unexplored actions - triggering backtrack'],
+        };
+      }
+
+      logger.info('DECIDE', `${unexploredActions.length} unexplored actions available`, undefined, context.sessionId);
+
       // Check if this is a login screen and we haven't attempted login yet
       const isLoginScreen = detectLoginScreen(state.domState);
       const shouldAutoLogin = isLoginScreen && 
@@ -105,11 +130,42 @@ export function createDecideStage(context: StageContext) {
         }
       }
 
+      // Filter DOM state to show only unexplored actions
+      // This helps the LLM focus on new actions and prevents re-trying explored ones
+      const filteredDomState = filterDomStateToUnexplored(state.domState, unexploredActions);
+      
+      // Derive section coverage from frontier for breadth-first exploration guidance
+      const frontierMap = new Map(Object.entries(state.explorationFrontier || {}));
+      const sectionCoverage = getSectionCoverageSummary(frontierMap);
+      const coverage = analyzeSectionCoverage(frontierMap);
+      const exploredPatterns = Array.from(coverage.keys());
+      
+      // Check if root page has been visited
+      const rootVisited = coverage.has('/');
+      
+      // Build section coverage hint
+      let sectionHint = '';
+      if (exploredPatterns.length > 0) {
+        sectionHint = `\n\n🗺️ SECTION COVERAGE:\n`;
+        sectionHint += `${sectionCoverage}\n`;
+        if (!rootVisited) {
+          sectionHint += `- Root/home page (/) has not been visited yet - consider exploring it\n`;
+        }
+        sectionHint += `- Prioritize exploring different URL path patterns (breadth-first) before going deep into one section\n`;
+        sectionHint += `- If you see navigation links to unexplored sections, prioritize those\n`;
+      }
+      
+      // Add exploration context hint
+      const explorationHint = `\n\n📊 EXPLORATION PROGRESS:\n` +
+        `- ${unexploredActions.length} unexplored actions remaining on this page\n` +
+        `- Only unexplored actions are shown below - these are actions that haven't been tried yet\n` +
+        `- Choose one action to explore next\n`;
+
       const systemPrompt = buildDecideStagePrompt(
-        state.domState,
+        filteredDomState,
         state.actionHistory,
         credentialsHint,
-        modalHint
+        modalHint + sectionHint + explorationHint
       );
 
       const messages = [
@@ -138,13 +194,25 @@ export function createDecideStage(context: StageContext) {
       let decision: Partial<DavAgentState>;
 
       if (content.includes('FLOW_END') || content.includes('"status": "FLOW_END"')) {
-        logger.info('DECIDE', 'Flow ended', undefined, context.sessionId);
-        decision = {
-          explorationStatus: 'FLOW_END',
-          pendingAction: null,
-          pendingActions: [],
-          actionHistory: ['[DECIDE] Agent decided to end flow.'],
-        };
+        // LLM wants to end flow - but check if there are unexplored actions
+        // If there are, trigger backtrack instead
+        if (unexploredActions.length > 0) {
+          logger.info('DECIDE', 'LLM requested FLOW_END but unexplored actions remain - triggering backtrack', undefined, context.sessionId);
+          decision = {
+            explorationStatus: 'BACKTRACK',
+            pendingAction: null,
+            pendingActions: [],
+            actionHistory: ['[DECIDE] LLM requested end but actions remain - triggering backtrack'],
+          };
+        } else {
+          logger.info('DECIDE', 'Flow ended', undefined, context.sessionId);
+          decision = {
+            explorationStatus: 'FLOW_END',
+            pendingAction: null,
+            pendingActions: [],
+            actionHistory: ['[DECIDE] Agent decided to end flow.'],
+          };
+        }
       } else {
         // Try to extract JSON from response
         const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -205,20 +273,23 @@ export function createDecideStage(context: StageContext) {
               };
             }
           } catch (e) {
-            // Fallback: try to infer action from text
+            // Fallback: trigger backtrack instead of ending
+            logger.warn('DECIDE', `Could not parse LLM response, triggering backtrack: ${content}`, undefined, context.sessionId);
             decision = {
-              explorationStatus: 'FLOW_END',
+              explorationStatus: 'BACKTRACK',
               pendingAction: null,
               pendingActions: [],
-              actionHistory: [`[DECIDE] Could not parse LLM response: ${content}`],
+              actionHistory: [`[DECIDE] Could not parse LLM response - triggering backtrack`],
             };
           }
         } else {
+          // No valid action found - trigger backtrack instead of ending
+          logger.warn('DECIDE', `No valid action found in response, triggering backtrack: ${content}`, undefined, context.sessionId);
           decision = {
-            explorationStatus: 'FLOW_END',
+            explorationStatus: 'BACKTRACK',
             pendingAction: null,
             pendingActions: [],
-            actionHistory: [`[DECIDE] No valid action found in response: ${content}`],
+            actionHistory: [`[DECIDE] No valid action found - triggering backtrack`],
           };
         }
       }
@@ -233,4 +304,3 @@ export function createDecideStage(context: StageContext) {
     }
   };
 }
-

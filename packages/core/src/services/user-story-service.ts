@@ -49,6 +49,7 @@ export class UserStoryService {
         temperature: 0.3, // Slightly higher for creative story generation
       });
     } else {
+      // @ts-ignore - Type instantiation issue with BaseChatModel
       this.llm = new ChatOpenAI({
         openAIApiKey: apiKey,
         modelName: config.llmModel || 'gpt-4o',

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  JFROG_URL: trial8or2vi.jfrog.io
+  BUILD_NAME: dav-ai
+  NPM_REPO: dav-npm
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v4
+        env:
+          JF_URL: https://${{ env.JFROG_URL }}
+          JF_ACCESS_TOKEN: ${{ secrets.JF_ACCESS_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable Corepack for Yarn 4
+        run: corepack enable
+
+      - name: Install dependencies through JFrog
+        run: |
+          yarn config set npmRegistryServer "https://${{ env.JFROG_URL }}/artifactory/api/npm/${{ env.NPM_REPO }}/"
+          yarn config set 'npmRegistries["https://${{ env.JFROG_URL }}/artifactory/api/npm/${{ env.NPM_REPO }}/"].npmAuthToken' "${{ secrets.JF_ACCESS_TOKEN }}"
+          yarn install
+
+      - name: Build
+        run: yarn build
+
+      - name: Collect and publish Build Info
+        run: |
+          jf rt build-collect-env ${{ env.BUILD_NAME }} ${{ github.run_number }}
+          jf rt build-add-git ${{ env.BUILD_NAME }} ${{ github.run_number }}
+          jf rt build-publish ${{ env.BUILD_NAME }} ${{ github.run_number }}

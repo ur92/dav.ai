@@ -39,6 +39,7 @@ jobs:
         run: |
           yarn config set npmRegistryServer "${{ env.JF_URL }}/artifactory/api/npm/${{ env.NPM_REPO }}/"
           yarn config set 'npmRegistries["${{ env.JF_URL }}/artifactory/api/npm/${{ env.NPM_REPO }}/"].npmAuthToken' "${{ steps.setup-jfrog.outputs.oidc-token }}"
+          yarn config set 'npmRegistries["${{ env.JF_URL }}/artifactory/api/npm/${{ env.NPM_REPO }}/"].npmAlwaysAuth' true
           yarn install
 
       - name: Build

@@ -418,6 +418,26 @@ The frontend BFF server proxies requests to the core service and adds WebSocket 
 - Neo4j HTTP: `7474`
 - Neo4j Bolt: `7687`
 
+## JFrog Integration
+
+This repo is connected to [JFrog Platform](https://trial8or2vi.jfrog.io/) for build info, security scans, and bi-directional code/package linking.
+
+### One-time setup (repo owner)
+
+1. **Create a JFrog project** at https://trial8or2vi.jfrog.io/ → Projects → Create Project (e.g. `dav-ai`). Note the project key.
+
+2. **Add repo variables** (Settings → Secrets and variables → Actions → Variables):
+   - `JF_URL` = `trial8or2vi.jfrog.io` (no `https://`)
+   - `JF_PROJECT` = your project key
+
+3. **Add repo secret** (Settings → Secrets and variables → Actions → Secrets):
+   - `JF_ACCESS_TOKEN` = Access token from JFrog (User menu → Edit Profile → Generate Token)
+
+### Workflows
+
+- **JFrog CI** (`.github/workflows/jfrog-ci.yml`) – Runs on push/PR to main: builds, publishes build info to JFrog.
+- **Frogbot** (`.github/workflows/frogbot-scan-pr.yml`) – Scans PRs for vulnerabilities via JFrog Xray.
+
 ## 📄 License
 
 MIT

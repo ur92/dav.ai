@@ -11,11 +11,7 @@ permissions:
   id-token: write
 
 env:
-<<<<<<< HEAD
-  JFROG_URL: trial8or2vi.jfrog.io
-=======
   JF_URL: https://trial8or2vi.jfrog.io
->>>>>>> 50873f0 (feat: integrate JFrog Artifactory for dependency management and CI)
   BUILD_NAME: dav-ai
   NPM_REPO: dav-npm
 
@@ -25,19 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-<<<<<<< HEAD
-      - name: Setup JFrog CLI
-        uses: jfrog/setup-jfrog-cli@v4
-        env:
-          JF_URL: https://${{ env.JFROG_URL }}
-          JF_ACCESS_TOKEN: ${{ secrets.JF_ACCESS_TOKEN }}
-=======
       - name: Setup JFrog CLI (OIDC)
         id: setup-jfrog
         uses: jfrog/setup-jfrog-cli@v4
         with:
           oidc-provider-name: github
->>>>>>> 50873f0 (feat: integrate JFrog Artifactory for dependency management and CI)
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -49,13 +37,8 @@ jobs:
 
       - name: Install dependencies through JFrog
         run: |
-<<<<<<< HEAD
-          yarn config set npmRegistryServer "https://${{ env.JFROG_URL }}/artifactory/api/npm/${{ env.NPM_REPO }}/"
-          yarn config set 'npmRegistries["https://${{ env.JFROG_URL }}/artifactory/api/npm/${{ env.NPM_REPO }}/"].npmAuthToken' "${{ secrets.JF_ACCESS_TOKEN }}"
-=======
           yarn config set npmRegistryServer "${{ env.JF_URL }}/artifactory/api/npm/${{ env.NPM_REPO }}/"
           yarn config set 'npmRegistries["${{ env.JF_URL }}/artifactory/api/npm/${{ env.NPM_REPO }}/"].npmAuthToken' "${{ steps.setup-jfrog.outputs.oidc-token }}"
->>>>>>> 50873f0 (feat: integrate JFrog Artifactory for dependency management and CI)
           yarn install
 
       - name: Build
